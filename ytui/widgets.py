@@ -140,7 +140,7 @@ class SeekBar(Static):
         text.append(f"  {fmt_time(pos)}  ", style="bold #f2b23c")
         text.append("━" * done, style="#e09b2a")
         text.append("◆", style="bold #ff6b35")
-        text.append("┄" * max(0, track - done - 1), style="#2a241d")
+        text.append("┄" * max(0, track - done - 1), style="#5f564c")
         text.append(right, style="#8a7f70" if dur else "bold #ff5c2e")
         return text
 
@@ -148,21 +148,21 @@ class SeekBar(Static):
 class VideoItem(ListItem):
     """One entry of a track listing."""
 
-    def __init__(self, video: Video, index: int | None = None):
+    def __init__(self, video: Video):
         super().__init__()
         self.video = video
-        self.index_label = index
         self._label = Static(self._text(False))
-        self.pending_chain: int | None = None
 
     def compose(self):
         yield self._label
 
     def _on_click(self, event: events.Click) -> None:
         """A click always highlights; only a double click starts playback.
-        The click count is stashed here because ListView.Selected, which the
-        app reacts to, carries no mouse information."""
-        self.pending_chain = event.chain
+        The click count is reported to the app because ListView.Selected,
+        which the app reacts to, carries no mouse information."""
+        notify = getattr(self.app, "note_click", None)
+        if notify:
+            notify(self, event.chain)
         super()._on_click(event)
 
     def _text(self, hl: bool) -> Text:
@@ -170,16 +170,7 @@ class VideoItem(ListItem):
         CSS cannot override a Rich style already baked into the text."""
         bg = "on #33240f" if hl else ""
         text = Text(no_wrap=True, overflow="ellipsis", style=bg)
-        text.append("▌" if hl else " ", style=f"{'#ff6b35' if hl else '#151210'} {bg}")
-
-        if self.index_label is not None:
-            text.append(
-                f" {self.index_label:02d} ",
-                style=f"{'bold #ffc459' if hl else '#6b6055'} {bg}",
-            )
-        else:
-            text.append(" ", style=bg)
-
+        text.append("▌ " if hl else "  ", style=f"{'#ff6b35' if hl else '#151210'} {bg}")
         text.append(
             f"{self.video.duration_str:>7}  ",
             style=f"{'#f2b23c' if hl else '#7d7266'} {bg}",

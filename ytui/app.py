@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from time import monotonic
+
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
@@ -14,11 +16,15 @@ from .sources import Video
 from .widgets import SeekBar, Spectrum, VideoItem
 
 FPS = 20
+CLICK_WINDOW = 0.8      # seconds a click keeps authority over ListView.Selected
 
 
 class YtuiApp(App):
     CSS_PATH = "app.tcss"
     TITLE = "ytui"
+    # One theme only: every colour is fixed in app.tcss. This also drops the
+    # command palette, whose sole use here was switching themes.
+    ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
         ("space", "toggle_pause", "Pause"),
@@ -37,8 +43,12 @@ class YtuiApp(App):
         self.player = Player(
             on_finished=lambda: self.call_from_thread(self._on_track_finished),
             on_error=lambda exc: self.call_from_thread(self._notify_error, exc),
+            on_attempt=lambda n, total: self.call_from_thread(
+                self._status, f"URL refusée, nouvelle tentative {n}/{total}"
+            ),
         )
         self.current: Video | None = None
+        self._click_stamp: tuple[int, float, int] = (0, 0.0, 0)
 
     # ------------------------------------------------------------------ view
 
@@ -119,13 +129,13 @@ class YtuiApp(App):
         except Exception as exc:
             self.call_from_thread(self._notify_error, exc)
             return
-        self.call_from_thread(self._fill, "#results", videos, True)
+        self.call_from_thread(self._fill, "#results", videos)
 
-    def _fill(self, selector: str, videos: list[Video], numbered: bool) -> None:
+    def _fill(self, selector: str, videos: list[Video]) -> None:
         view = self.query_one(selector, ListView)
         view.clear()
-        for i, video in enumerate(videos, 1):
-            view.append(VideoItem(video, i if numbered else None))
+        for video in videos:
+            view.append(VideoItem(video))
         if selector == "#results":
             self._status(f"{len(videos)} résultats")
             if videos:
@@ -139,11 +149,22 @@ class YtuiApp(App):
         item = event.item
         if not isinstance(item, VideoItem):
             return
-        chain, item.pending_chain = item.pending_chain, None
-        if chain == 1:      # single click selects, double click plays
-            self._status("double-clic ou entrée pour lire")
-            return
+
+        # One mouse click makes ListView post Selected twice, and only the
+        # first carries the click count — so the decision is taken on a
+        # timestamp, not on a one-shot flag.
+        target, when, chain = self._click_stamp
+        if target == id(item) and monotonic() - when < CLICK_WINDOW:
+            if chain < 2:
+                self._status("double-clic pour lire")
+                return
+            # Consume the double click so its second Selected is ignored.
+            self._click_stamp = (target, when, 0)
         self.play_video(item.video)
+
+    def note_click(self, item: VideoItem, chain: int) -> None:
+        """Called by VideoItem: records which row was clicked, how many times."""
+        self._click_stamp = (id(item), monotonic(), chain)
 
     def play_video(self, video: Video) -> None:
         self.current = video
@@ -185,7 +206,7 @@ class YtuiApp(App):
             videos = sources.related(video)
         except Exception:
             return
-        self.call_from_thread(self._fill, "#suggestions", videos, False)
+        self.call_from_thread(self._fill, "#suggestions", videos)
 
     def _on_track_finished(self) -> None:
         self.action_next_track()

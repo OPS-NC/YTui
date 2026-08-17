@@ -24,7 +24,10 @@ from collections import deque
 
 VIS_RATE = 16000            # analyser feed: 32 kB/s, negligible
 SINK_BUFFER_MS = 200
-ATTEMPTS = 5                # signed URLs are often dead on arrival
+# Roughly one signed URL in two is dead on arrival, whatever the format or
+# headers, and a dead one never recovers — only a freshly signed URL does.
+# Ten attempts put the odds of total failure near 0.1%.
+ATTEMPTS = 10
 OPEN_TIMEOUT = 5.0          # seconds to wait for the first samples
 WINDOW = 256                # samples per analysis window (16 ms)
 NBANDS = 32
@@ -37,9 +40,10 @@ def _band_freqs(n: int) -> list[float]:
 
 
 class Player:
-    def __init__(self, on_finished=None, on_error=None):
+    def __init__(self, on_finished=None, on_error=None, on_attempt=None):
         self._on_finished = on_finished
         self._on_error = on_error
+        self._on_attempt = on_attempt
 
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
@@ -111,6 +115,8 @@ class Player:
         for attempt in range(ATTEMPTS):
             if gen != self._generation:
                 return
+            if attempt and self._on_attempt:
+                self._on_attempt(attempt + 1, ATTEMPTS)
             try:
                 url, headers = provider(attempt > 0)
             except Exception as exc:
