@@ -8,7 +8,8 @@ suggestions. Environ 95 Mo de RSS en lecture, processus ffmpeg compris.
 
 - Python >= 3.10
 - ffmpeg (décodage + sortie audio)
-- PulseAudio ou PipeWire avec la couche de compatibilité Pulse
+- Linux/WSL : PulseAudio ou PipeWire avec la couche de compatibilité Pulse
+- macOS : rien de plus, la sortie passe par AudioToolbox / CoreAudio
 - python3-venv
 
 Debian / Ubuntu / WSL :
@@ -29,8 +30,24 @@ Fedora :
 sudo dnf install python3 ffmpeg
 ```
 
+macOS :
+
+```
+brew install python ffmpeg
+```
+
 Sous WSL, WSLg fournit déjà le serveur Pulse (`PULSE_SERVER=unix:/mnt/wslg/PulseServer`),
 rien à configurer.
+
+La sortie audio est choisie selon la plateforme : `-f pulse` sur Linux,
+`-f audiotoolbox` sur macOS. Rien à configurer.
+
+### macOS : certificats CA
+
+Avec un Python installé depuis python.org, aucun magasin de certificats n'est
+fourni et toute recherche échoue (`CERTIFICATE_VERIFY_FAILED`). `certifi` fait
+partie des dépendances, ce qui suffit à yt-dlp ; sinon lancez une fois
+`/Applications/Python 3.x/Install Certificates.command`.
 
 ## Lancement
 
@@ -38,8 +55,8 @@ rien à configurer.
 ./ytui.sh
 ```
 
-Le script crée `.venv` et installe les dépendances Python (`textual`, `yt-dlp`)
-au premier appel, puis démarre l'application.
+Le script crée `.venv` et installe les dépendances Python (`textual`, `yt-dlp`,
+`certifi`) au premier appel, puis démarre l'application.
 
 Installation manuelle équivalente :
 

@@ -196,7 +196,7 @@ class YtuiApp(App):
         )
         self.call_from_thread(
             self.query_one("#now-sub", Static).update,
-            f"{video.uploader or '—'}  ·  {video.duration_str}  ·  pulseaudio",
+            f"{video.uploader or '—'}  ·  {video.duration_str}  ·  {self.player.backend}",
         )
         self.call_from_thread(self._status, "lecture")
 

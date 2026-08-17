@@ -3,7 +3,8 @@
 That one process does three jobs at once:
 
   * decodes the audio-only stream (never a video stream);
-  * plays it on PulseAudio (`-f pulse`), which also paces the whole graph;
+  * plays it on the OS sink — PulseAudio (`-f pulse`) on Linux, AudioToolbox
+    (`-f audiotoolbox`) on macOS — which also paces the whole graph;
   * emits a mono 16 kHz s16 copy on stdout, used by the analyser.
 
 Consequences: no second ffmpeg, no PortAudio, no numpy. Pause is SIGSTOP on
@@ -17,13 +18,19 @@ import math
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from array import array
 from collections import deque
+from functools import lru_cache
 
 VIS_RATE = 16000            # analyser feed: 32 kB/s, negligible
-SINK_BUFFER_MS = 200
+# macOS has no PulseAudio; ffmpeg talks to CoreAudio through audiotoolbox,
+# which takes no buffer option — its own latency is ~100 ms.
+IS_MAC = sys.platform == "darwin"
+BACKEND = "audiotoolbox" if IS_MAC else "pulse"
+SINK_BUFFER_MS = 100 if IS_MAC else 200
 # Roughly one signed URL in two is dead on arrival, whatever the format or
 # headers, and a dead one never recovers — only a freshly signed URL does.
 # Ten attempts put the odds of total failure near 0.1%.
@@ -32,6 +39,23 @@ OPEN_TIMEOUT = 5.0          # seconds to wait for the first samples
 WINDOW = 256                # samples per analysis window (16 ms)
 NBANDS = 32
 FMIN, FMAX = 55.0, 7000.0
+
+
+@lru_cache(maxsize=1)
+def _sink_available() -> bool:
+    """An ffmpeg build without the sink muxer would fail ATTEMPTS times in a
+    row for a reason no retry can fix; one cached probe says it up front."""
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-muxers"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return True         # undecidable: let the normal error path speak
+    return any(parts[1] == BACKEND
+               for parts in (ln.split() for ln in out.splitlines())
+               if len(parts) >= 2)
 
 
 def _band_freqs(n: int) -> list[float]:
@@ -59,7 +83,7 @@ class Player:
         self.volume = 1.0
         self.duration: float | None = None
         self.loaded = False
-        self.backend = "pulse"
+        self.backend = BACKEND
 
         freqs = _band_freqs(NBANDS)
         # Pre-computed Goertzel coefficients: the whole analyser cost is
@@ -96,6 +120,10 @@ class Player:
         """
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg introuvable dans le PATH")
+        if not _sink_available():
+            hint = ("réinstallez ffmpeg (brew install ffmpeg)" if IS_MAC
+                    else "installez un ffmpeg avec le support PulseAudio")
+            raise RuntimeError(f"ffmpeg sans sortie « {BACKEND} » — {hint}")
         self.stop()
         with self._lock:
             self._generation += 1
@@ -149,11 +177,14 @@ class Player:
             cmd += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in extra.items())]
         if start > 0:
             cmd += ["-ss", f"{start:.3f}"]
+        # 1. the audible output; the OS sink paces the whole graph
+        if IS_MAC:
+            sink = ["-f", "audiotoolbox", "-"]
+        else:
+            sink = ["-f", "pulse", "-buffer_duration", str(SINK_BUFFER_MS), "ytui"]
         cmd += [
             "-i", url, "-vn", "-sn", "-dn",
-            # 1. the audible output; PulseAudio paces the whole graph
-            "-map", "0:a:0", "-af", vol,
-            "-f", "pulse", "-buffer_duration", str(SINK_BUFFER_MS), "ytui",
+            "-map", "0:a:0", "-af", vol, *sink,
             # 2. the analyser feed, same clock, 1/12th of the bandwidth
             "-map", "0:a:0", "-af", f"{vol},aresample={VIS_RATE}",
             "-ac", "1", "-f", "s16le", "pipe:1",
