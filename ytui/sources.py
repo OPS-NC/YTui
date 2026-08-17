@@ -92,19 +92,35 @@ def _ytdlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 
-def _run(args: list[str]) -> str:
+def _explain(stderr: str) -> str:
+    """Turn yt-dlp's last stderr line into something actionable."""
+    lines = [ln for ln in (stderr or "").strip().splitlines() if ln.strip()]
+    last = lines[-1] if lines else "yt-dlp a échoué"
+    if "CERTIFICATE_VERIFY_FAILED" in stderr:
+        return ("aucun certificat CA disponible pour Python — installez certifi "
+                "(.venv/bin/pip install certifi) ou lancez "
+                "« /Applications/Python 3.x/Install Certificates.command »")
+    return last
+
+
+def _run(args: list[str]) -> tuple[str, str]:
+    """Returns (stdout, stderr). yt-dlp often exits non-zero while still
+    printing usable JSON, so a failed return code alone is not an error."""
     proc = subprocess.run(
         _ytdlp_cmd() + ["--no-warnings", "--ignore-config", *args],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=TIMEOUT, text=True,
     )
     if proc.returncode != 0 and not proc.stdout.strip():
-        err = (proc.stderr or "").strip().splitlines()
-        raise RuntimeError(err[-1] if err else "yt-dlp a échoué")
-    return proc.stdout
+        raise RuntimeError(_explain(proc.stderr))
+    return proc.stdout, proc.stderr
 
 
-def _entry_to_video(entry: dict) -> Video | None:
+def _entry_to_video(entry: dict | None) -> Video | None:
+    # A partially failed extraction yields None entries — YouTube errors, a
+    # blocked page, or no network at all — so this is never assumed to be a dict.
+    if not isinstance(entry, dict):
+        return None
     vid = entry.get("id")
     if not vid or len(vid) != 11:
         return None
@@ -117,11 +133,17 @@ def _entry_to_video(entry: dict) -> Video | None:
 
 
 def _flat(url: str, extra: list[str]) -> list[Video]:
-    out = _run(["--flat-playlist", "--dump-single-json", *extra, url])
+    out, err = _run(["--flat-playlist", "--dump-single-json", *extra, url])
     if not out.strip():
-        return []
-    info = json.loads(out)
-    return [v for v in map(_entry_to_video, info.get("entries") or []) if v]
+        raise RuntimeError(_explain(err))
+    info = json.loads(out) or {}
+    entries = info.get("entries") or []
+    videos = [v for v in map(_entry_to_video, entries) if v]
+    # Every entry unusable while stderr complained: report the real cause
+    # instead of an empty, silent result list.
+    if not videos and err.strip():
+        raise RuntimeError(_explain(err))
+    return videos
 
 
 def search(query: str, limit: int = 60) -> list[Video]:
@@ -137,7 +159,7 @@ def related(video: Video, limit: int = 40) -> list[Video]:
 
 def resolve_audio(video: Video) -> Video:
     """Direct audio-only stream URL. Video streams are never requested."""
-    out = _run([
+    out, err = _run([
         "-f", "bestaudio[abr<=160]/bestaudio/best",
         # The signed URL is only valid for the exact headers yt-dlp negotiated;
         # without them googlevideo answers 403.
@@ -146,7 +168,7 @@ def resolve_audio(video: Video) -> Video:
     ])
     line = next((ln for ln in out.splitlines() if ln.startswith("http")), "")
     if not line:
-        raise RuntimeError("flux audio introuvable")
+        raise RuntimeError(_explain(err) if err.strip() else "flux audio introuvable")
     parts = (line.split("\t") + ["", "", "", ""])[:5]
     video.stream_url = parts[0]
     if parts[1].isdigit():
