@@ -124,11 +124,11 @@ def _flat(url: str, extra: list[str]) -> list[Video]:
     return [v for v in map(_entry_to_video, info.get("entries") or []) if v]
 
 
-def search(query: str, limit: int = 25) -> list[Video]:
+def search(query: str, limit: int = 60) -> list[Video]:
     return _flat(f"ytsearch{limit}:{query}", [])
 
 
-def related(video: Video, limit: int = 25) -> list[Video]:
+def related(video: Video, limit: int = 40) -> list[Video]:
     """Suggestions = the YouTube auto-mix (radio) built around the video."""
     mix = f"https://www.youtube.com/watch?v={video.id}&list=RD{video.id}"
     videos = _flat(mix, ["--playlist-end", str(limit + 1)])
