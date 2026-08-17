@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from urllib.parse import parse_qs, urlparse
 
 TIMEOUT = 90
 
@@ -24,6 +25,7 @@ class Video:
     uploader: str = ""
     duration: int | None = None
     stream_url: str | None = field(default=None, repr=False)
+    headers: dict = field(default_factory=dict, repr=False)
 
     @property
     def url(self) -> str:
@@ -41,6 +43,43 @@ def fmt_time(seconds: float | None) -> str:
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+_ID_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+
+
+def parse_video_id(text: str) -> str | None:
+    """Accept a bare id, a watch/shorts/embed URL or a youtu.be link."""
+    text = text.strip()
+    if not text or " " in text:
+        return None
+
+    if len(text) == 11 and all(c in _ID_CHARS for c in text):
+        return text
+
+    if "://" not in text:
+        if not text.startswith(("youtube.com", "www.youtube.com", "youtu.be",
+                                "m.youtube.com", "music.youtube.com")):
+            return None
+        text = "https://" + text
+
+    parsed = urlparse(text)
+    host = parsed.netloc.lower().removeprefix("www.")
+    candidate = ""
+
+    if host == "youtu.be":
+        candidate = parsed.path.lstrip("/").split("/")[0]
+    elif host in ("youtube.com", "m.youtube.com", "music.youtube.com", "youtube-nocookie.com"):
+        if parsed.path == "/watch":
+            candidate = parse_qs(parsed.query).get("v", [""])[0]
+        else:
+            parts = [p for p in parsed.path.split("/") if p]
+            if parts and parts[0] in ("shorts", "embed", "live", "v"):
+                candidate = parts[1] if len(parts) > 1 else ""
+
+    if len(candidate) == 11 and all(c in _ID_CHARS for c in candidate):
+        return candidate
+    return None
 
 
 def _ytdlp_cmd() -> list[str]:
@@ -100,13 +139,15 @@ def resolve_audio(video: Video) -> Video:
     """Direct audio-only stream URL. Video streams are never requested."""
     out = _run([
         "-f", "bestaudio[abr<=160]/bestaudio/best",
-        "--print", "%(url)s\t%(duration)s\t%(title)s\t%(uploader)s",
+        # The signed URL is only valid for the exact headers yt-dlp negotiated;
+        # without them googlevideo answers 403.
+        "--print", "%(url)s\t%(duration)s\t%(title)s\t%(uploader)s\t%(http_headers)j",
         video.url,
     ])
     line = next((ln for ln in out.splitlines() if ln.startswith("http")), "")
     if not line:
         raise RuntimeError("flux audio introuvable")
-    parts = (line.split("\t") + ["", "", ""])[:4]
+    parts = (line.split("\t") + ["", "", "", ""])[:5]
     video.stream_url = parts[0]
     if parts[1].isdigit():
         video.duration = int(parts[1])
@@ -114,4 +155,9 @@ def resolve_audio(video: Video) -> Video:
         video.title = parts[2]
     if not video.uploader and parts[3] and parts[3] != "NA":
         video.uploader = parts[3]
+    try:
+        headers = json.loads(parts[4])
+        video.headers = {k: v for k, v in headers.items() if isinstance(v, str)}
+    except (ValueError, AttributeError):
+        video.headers = {}
     return video

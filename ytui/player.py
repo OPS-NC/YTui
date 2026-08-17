@@ -45,6 +45,7 @@ class Player:
         self._samples_read = 0
         self._start_offset = 0.0
         self._url: str | None = None
+        self._headers: dict = {}
         self._window = deque([0.0] * WINDOW, maxlen=WINDOW)
 
         self.paused = False
@@ -77,16 +78,23 @@ class Player:
 
     # ------------------------------------------------------------- transport
 
-    def play(self, url: str, duration: float | None = None, start: float = 0.0) -> None:
+    def play(self, url: str, duration: float | None = None, start: float = 0.0,
+             headers: dict | None = None) -> None:
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg introuvable dans le PATH")
         self.stop()
 
+        headers = headers if headers is not None else self._headers
         vol = f"volume={self.volume:.3f}"
         cmd = [
             "ffmpeg", "-nostdin", "-loglevel", "error",
             "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5",
         ]
+        extra = {k: v for k, v in (headers or {}).items() if k.lower() != "user-agent"}
+        if headers and headers.get("User-Agent"):
+            cmd += ["-user_agent", headers["User-Agent"]]
+        if extra:
+            cmd += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in extra.items())]
         if start > 0:
             cmd += ["-ss", f"{start:.3f}"]
         cmd += [
@@ -113,6 +121,7 @@ class Player:
             self.paused = False
             self.loaded = True
             self._url = url
+            self._headers = headers or {}
 
         threading.Thread(target=self._read_vis, args=(proc, gen), daemon=True).start()
 

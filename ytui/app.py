@@ -43,24 +43,33 @@ class YtuiApp(App):
     # ------------------------------------------------------------------ view
 
     def compose(self) -> ComposeResult:
-        yield Static("◈  y t u i   ·   youtube sans image", id="brand")
-        yield Input(placeholder="Rechercher sur YouTube…", id="search")
+        with Horizontal(id="topbar"):
+            yield Static("y t u i", id="brand")
+            yield Static("TUNER · AUDIO SEUL", id="status")
+        yield Input(
+            placeholder="Rechercher, ou coller une URL / un ID de vidéo…",
+            id="search",
+        )
         with Horizontal(id="body"):
             with Vertical(id="left"):
-                yield Static("RÉSULTATS", classes="pane-title")
                 yield ListView(id="results")
             with Vertical(id="right"):
-                yield Static("En attente…", id="now-title")
-                yield Static("", id="now-sub")
-                yield Spectrum(self.player, id="spectrum")
-                yield SeekBar(id="seek")
-                yield Static("SUGGESTIONS  ·  lecture auto", classes="pane-title")
+                with Vertical(id="deck"):
+                    yield Static("— aucune piste —", id="now-title")
+                    yield Static("prêt", id="now-sub")
+                    yield Spectrum(self.player, id="spectrum")
+                    yield SeekBar(id="seek")
                 yield ListView(id="suggestions")
         with Horizontal(id="bottom"):
             yield Footer()
             yield Static("", id="mem")
 
     def on_mount(self) -> None:
+        # Inline border titles: the panel frame doubles as its own label.
+        self.query_one("#results", ListView).border_title = "R É S U L T A T S"
+        self.query_one("#suggestions", ListView).border_title = "S U I T E   ·   auto"
+        self.query_one("#deck", Vertical).border_title = "P L A T I N E"
+        self.query_one("#search", Input).border_title = "R E C H E R C H E"
         self.query_one("#search", Input).focus()
         self.set_interval(1 / FPS, self._tick)
         self.set_interval(1.0, self._tick_mem)
@@ -93,9 +102,15 @@ class YtuiApp(App):
     @on(Input.Submitted, "#search")
     def _submit(self, event: Input.Submitted) -> None:
         query = event.value.strip()
-        if query:
-            self._status(f"Recherche « {query} »…")
-            self.run_search(query)
+        if not query:
+            return
+        video_id = sources.parse_video_id(query)
+        if video_id:
+            self._status("Lien reconnu, ouverture…")
+            self.play_video(Video(id=video_id, title=f"youtube.com/watch?v={video_id}"))
+            return
+        self._status(f"Recherche « {query} »…")
+        self.run_search(query)
 
     @work(thread=True, exclusive=True, group="search")
     def run_search(self, query: str) -> None:
@@ -138,10 +153,14 @@ class YtuiApp(App):
     def start_stream(self, video: Video) -> None:
         try:
             sources.resolve_audio(video)
-            self.player.play(video.stream_url, video.duration)
+            self.player.play(video.stream_url, video.duration, headers=video.headers)
         except Exception as exc:
             self.call_from_thread(self._notify_error, exc)
             return
+        # A pasted link starts with a placeholder title; resolving fills it in.
+        self.call_from_thread(
+            self.query_one("#now-title", Static).update, f"♪  {video.title}"
+        )
         self.call_from_thread(
             self.query_one("#now-sub", Static).update,
             f"{video.uploader}   ·   audio seul   ·   {video.duration_str}",
@@ -177,11 +196,11 @@ class YtuiApp(App):
         self.player.seek(10)
 
     def action_volume_up(self) -> None:
-        self.player.volume = min(1.5, self.player.volume + 0.1)
+        self.player.set_volume(self.player.volume + 0.1)
         self._status(f"Volume {self.player.volume:.0%}")
 
     def action_volume_down(self) -> None:
-        self.player.volume = max(0.0, self.player.volume - 0.1)
+        self.player.set_volume(self.player.volume - 0.1)
         self._status(f"Volume {self.player.volume:.0%}")
 
     def action_stop(self) -> None:
