@@ -1,0 +1,4 @@
+textual>=1.0
+yt-dlp>=2024.10.7
+numpy>=1.26
+sounddevice>=0.4.6

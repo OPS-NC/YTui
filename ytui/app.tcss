@@ -1,0 +1,139 @@
+Screen {
+    background: #0b0d13;
+    color: #d1d5db;
+}
+
+#brand {
+    padding: 0 2;
+    height: 1;
+    color: #a78bfa;
+    background: #11131c;
+    text-style: bold;
+}
+
+#search {
+    margin: 1 2 0 2;
+    border: round #2a2e3e;
+    background: #11131c;
+    color: #e5e7eb;
+}
+#search:focus {
+    border: round #a78bfa;
+}
+
+#body {
+    height: 1fr;
+    padding: 1 2 0 2;
+}
+
+#left {
+    width: 45%;
+    margin-right: 2;
+}
+
+#right {
+    width: 1fr;
+}
+
+.pane-title {
+    height: 1;
+    color: #6b7280;
+    text-style: bold;
+    padding: 0 1;
+}
+
+ListView {
+    background: #0e1017;
+    border: round #23273a;
+    height: 1fr;
+    scrollbar-size: 1 1;
+    scrollbar-background: #0e1017;
+    scrollbar-color: #2a2e3e;
+}
+ListView:focus {
+    border: round #6d28d9;
+}
+
+ListView > ListItem {
+    background: #0e1017;
+    padding: 0 1;
+}
+ListView > ListItem > Static {
+    background: transparent;
+    width: 1fr;
+}
+ListView > ListItem.-highlight {
+    background: #7c3aed;
+}
+ListView > ListItem.-highlight > Static.hl {
+    background: #7c3aed;
+    color: #ffffff;
+}
+ListView > ListItem.-hovered {
+    background: #1c1f2e;
+}
+
+#now-title {
+    height: 1;
+    color: #f472b6;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#now-sub {
+    height: 1;
+    color: #6b7280;
+    padding: 0 1;
+}
+
+#spectrum {
+    height: 11;
+    margin: 1 1 0 1;
+}
+
+#seek {
+    height: 1;
+    margin: 0 1 1 1;
+}
+
+#suggestions {
+    height: 1fr;
+}
+
+#bottom {
+    dock: bottom;
+    height: 1;
+    background: #11131c;
+}
+
+#bottom Footer {
+    dock: none;
+    width: 1fr;
+    height: 1;
+}
+
+#mem {
+    width: auto;
+    height: 1;
+    padding: 0 2;
+    text-align: right;
+    background: #11131c;
+    color: #4b5563;
+}
+
+Footer {
+    background: #11131c;
+    color: #6b7280;
+}
+
+FooterKey {
+    background: #11131c;
+}
+FooterKey > .footer-key--key {
+    background: #11131c;
+    color: #a78bfa;
+}
+FooterKey > .footer-key--description {
+    background: #11131c;
+    color: #6b7280;
+}
