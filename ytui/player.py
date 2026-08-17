@@ -31,10 +31,10 @@ VIS_RATE = 16000            # analyser feed: 32 kB/s, negligible
 IS_MAC = sys.platform == "darwin"
 BACKEND = "audiotoolbox" if IS_MAC else "pulse"
 SINK_BUFFER_MS = 100 if IS_MAC else 200
-# Roughly one signed URL in two is dead on arrival, whatever the format or
-# headers, and a dead one never recovers — only a freshly signed URL does.
-# Ten attempts put the odds of total failure near 0.1%.
-ATTEMPTS = 10
+# sources.resolve_audio now probes each URL the way ffmpeg fetches it, so an
+# attempt reaching this point is expected to work; the few that still fail lost
+# a race against expiry and a freshly signed URL fixes them.
+ATTEMPTS = 4
 OPEN_TIMEOUT = 5.0          # seconds to wait for the first samples
 WINDOW = 256                # samples per analysis window (16 ms)
 NBANDS = 32

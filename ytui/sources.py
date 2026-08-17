@@ -10,12 +10,17 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import sys
+import urllib.request
 from dataclasses import dataclass, field
+from functools import lru_cache
 from urllib.parse import parse_qs, urlparse
 
 TIMEOUT = 90
+PROBE_BYTES = 8192
+PROBE_TIMEOUT = 8
 
 
 @dataclass
@@ -26,6 +31,7 @@ class Video:
     duration: int | None = None
     stream_url: str | None = field(default=None, repr=False)
     headers: dict = field(default_factory=dict, repr=False)
+    source: str = field(default="", repr=False)
 
     @property
     def url(self) -> str:
@@ -92,6 +98,17 @@ def _ytdlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 
+@lru_cache(maxsize=1)
+def _js_runtime_args() -> tuple[str, ...]:
+    """yt-dlp needs a JS engine to solve YouTube's signature challenges and
+    only auto-enables deno. Any of these will do, so whatever is installed is
+    declared — extraction without one is deprecated upstream."""
+    for runtime in ("deno", "node", "bun", "quickjs"):
+        if shutil.which(runtime):
+            return ("--js-runtimes", runtime)
+    return ()
+
+
 def _explain(stderr: str) -> str:
     """Turn yt-dlp's last stderr line into something actionable."""
     lines = [ln for ln in (stderr or "").strip().splitlines() if ln.strip()]
@@ -107,7 +124,8 @@ def _run(args: list[str]) -> tuple[str, str]:
     """Returns (stdout, stderr). yt-dlp often exits non-zero while still
     printing usable JSON, so a failed return code alone is not an error."""
     proc = subprocess.run(
-        _ytdlp_cmd() + ["--no-warnings", "--ignore-config", *args],
+        _ytdlp_cmd() + ["--no-warnings", "--ignore-config",
+                        *_js_runtime_args(), *args],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=TIMEOUT, text=True,
     )
@@ -157,20 +175,67 @@ def related(video: Video, limit: int = 40) -> list[Video]:
     return [v for v in videos if v.id != video.id][:limit]
 
 
-def resolve_audio(video: Video) -> Video:
-    """Direct audio-only stream URL. Video streams are never requested."""
-    out, err = _run([
-        "-f", "bestaudio[abr<=160]/bestaudio/best",
-        # The signed URL is only valid for the exact headers yt-dlp negotiated;
-        # without them googlevideo answers 403.
-        "--print", "%(url)s\t%(duration)s\t%(title)s\t%(uploader)s\t%(http_headers)j",
-        video.url,
-    ])
+@dataclass(frozen=True)
+class _Strategy:
+    """One way of asking YouTube for something playable."""
+    label: str
+    extractor_args: tuple[str, ...]
+    fmt: str
+
+
+# YouTube only hands a plain https URL to the clients that need no PO token,
+# and it now refuses long-range requests on their audio-only formats: ffmpeg
+# opens a stream with `Range: bytes=0-` and gets 403 every single time, which
+# is what turned playback into a losing retry loop. The progressive stream of
+# the android client still answers, at the price of downloading a 360p video
+# track that ffmpeg throws away. So: audio-only first, muxed as a safety net.
+STRATEGIES = (
+    _Strategy("audio seul", (), "bestaudio[abr<=160]/bestaudio"),
+    _Strategy("flux muxé", ("--extractor-args", "youtube:player_client=android"),
+              "bestaudio/18/best[acodec!=none]"),
+)
+
+_PRINT = "%(url)s\t%(duration)s\t%(title)s\t%(uploader)s\t%(vcodec)s\t%(http_headers)j"
+
+# What worked for the previous track, tried first for the next one: whichever
+# way YouTube is treating this session tends to hold for the whole session, and
+# a doomed first strategy costs a yt-dlp round trip per track.
+_preferred = 0
+
+
+@lru_cache(maxsize=1)
+def _ssl_context() -> ssl.SSLContext:
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
+def stream_playable(url: str, headers: dict) -> bool:
+    """Probe the URL exactly the way ffmpeg will fetch it — one open-ended
+    range request — because that is the request YouTube rejects. A URL that
+    fails here would fail ten times in a row in the player."""
+    if ".m3u8" in url or "/manifest/" in url:
+        return True                      # HLS: fetched segment by segment
+    request = urllib.request.Request(url, headers={**headers, "Range": "bytes=0-"})
+    try:
+        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT,
+                                    context=_ssl_context()) as response:
+            return bool(response.read(PROBE_BYTES))
+    except Exception:
+        return False
+
+
+def _resolve_with(video: Video, strategy: _Strategy) -> tuple[str, dict, str]:
+    out, err = _run([*strategy.extractor_args, "-f", strategy.fmt,
+                     # The signed URL is only valid for the exact headers
+                     # yt-dlp negotiated; without them googlevideo answers 403.
+                     "--print", _PRINT, video.url])
     line = next((ln for ln in out.splitlines() if ln.startswith("http")), "")
     if not line:
         raise RuntimeError(_explain(err) if err.strip() else "flux audio introuvable")
-    parts = (line.split("\t") + ["", "", "", ""])[:5]
-    video.stream_url = parts[0]
+    parts = (line.split("\t") + [""] * 6)[:6]
     if parts[1].isdigit():
         video.duration = int(parts[1])
     if parts[2] and parts[2] != "NA":
@@ -178,8 +243,34 @@ def resolve_audio(video: Video) -> Video:
     if not video.uploader and parts[3] and parts[3] != "NA":
         video.uploader = parts[3]
     try:
-        headers = json.loads(parts[4])
-        video.headers = {k: v for k, v in headers.items() if isinstance(v, str)}
-    except (ValueError, AttributeError):
-        video.headers = {}
-    return video
+        headers = {k: v for k, v in json.loads(parts[5]).items() if isinstance(v, str)}
+    except (ValueError, AttributeError, TypeError):
+        headers = {}
+    kind = strategy.label if parts[4] in ("none", "", "NA") else f"{strategy.label} 360p"
+    return parts[0], headers, kind
+
+
+def resolve_audio(video: Video) -> Video:
+    """Fill in a stream URL that has been checked against the real fetch.
+
+    Every strategy is tried in order and validated; only a URL that actually
+    served bytes is handed to the player.
+    """
+    global _preferred
+    last = "flux audio introuvable"
+    order = sorted(range(len(STRATEGIES)), key=lambda i: i != _preferred)
+    for index in order:
+        strategy = STRATEGIES[index]
+        try:
+            url, headers, kind = _resolve_with(video, strategy)
+        except Exception as exc:
+            last = str(exc)
+            continue
+        if not stream_playable(url, headers):
+            last = (f"403 sur « {strategy.label} » — YouTube exige un PO token "
+                    "pour ce client")
+            continue
+        video.stream_url, video.headers, video.source = url, headers, kind
+        _preferred = index
+        return video
+    raise RuntimeError(last)

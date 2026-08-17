@@ -49,6 +49,42 @@ fourni et toute recherche échoue (`CERTIFICATE_VERIFY_FAILED`). `certifi` fait
 partie des dépendances, ce qui suffit à yt-dlp ; sinon lancez une fois
 `/Applications/Python 3.x/Install Certificates.command`.
 
+## Flux, 403 et qualité
+
+Depuis 2025 YouTube exige un *PO token* pour la plupart de ses clients. Les
+clients qui s'en passent (`android_vr`) donnent bien des formats audio seuls,
+mais leurs URLs refusent les requêtes de plage ouverte : ffmpeg ouvre un flux
+avec `Range: bytes=0-` et reçoit `403` à chaque essai — d'où les échecs en
+boucle. Mesuré : au-delà de ~512 Kio par requête, `403` systématique, et
+yt-dlp lui-même échoue sur ces formats.
+
+ytui teste donc chaque URL avec exactement la requête que ffmpeg enverra, puis
+retient la première qui répond :
+
+1. `audio seul` — DASH opus 135 kb/s, aucun octet de vidéo ;
+2. `flux muxé 360p` — le progressif du client `android` (~300 kb/s, AAC ~96 kb/s),
+   dont ffmpeg jette la vidéo. Moins bon, mais il répond.
+
+La stratégie retenue est réutilisée pour les pistes suivantes, et la platine
+affiche laquelle est en cours. Une URL non validée n'est jamais confiée au
+lecteur, ce qui supprime la boucle de tentatives perdues.
+
+### Retrouver l'audio seul en permanence
+
+Il faut fournir un PO token, ce que font tous les clients YouTube alternatifs
+aujourd'hui. Un fournisseur local suffit :
+
+```
+.venv/bin/pip install -U bgutil-ytdlp-pot-provider
+docker run --name bgutil-provider -d --init brainicism/bgutil-ytdlp-pot-provider
+```
+
+yt-dlp détecte le greffon tout seul ; sans Docker, le dépôt du fournisseur
+tourne aussi en mode script avec Node >= 20. Un moteur JS (`brew install deno`)
+est par ailleurs recommandé : yt-dlp en a besoin pour les défis de signature et
+l'extraction sans moteur est dépréciée. `--cookies-from-browser` est une autre
+voie, au prix d'attacher son compte YouTube aux requêtes.
+
 ## Lancement
 
 ```
