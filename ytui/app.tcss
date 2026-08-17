@@ -1,25 +1,60 @@
+/* ytui — chassis of a late-70s hi-fi separate.
+   Warm near-black, brushed-metal hairlines, amber legends, ember accents. */
+
 Screen {
-    background: #0b0d13;
-    color: #d1d5db;
+    background: #0d0c0b;
+    color: #cbc0b2;
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+#topbar {
+    dock: top;
+    height: 1;
+    background: #151210;
 }
 
 #brand {
+    width: auto;
     padding: 0 2;
-    height: 1;
-    color: #a78bfa;
-    background: #11131c;
+    color: #ff6b35;
     text-style: bold;
+    background: #151210;
 }
+
+#status {
+    width: 1fr;
+    padding: 0 2;
+    text-align: right;
+    color: #6b6055;
+    background: #151210;
+}
+
+/* ----------------------------------------------------------------- search */
 
 #search {
     margin: 1 2 0 2;
-    border: round #2a2e3e;
-    background: #11131c;
-    color: #e5e7eb;
+    height: 3;
+    border: tall #2a241d;
+    border-title-color: #6b6055;
+    border-title-align: left;
+    background: #121010;
+    color: #f0e6d8;
 }
 #search:focus {
-    border: round #a78bfa;
+    border: tall #e09b2a;
+    border-title-color: #f2b23c;
+    background: #17130f;
 }
+#search > .input--placeholder {
+    color: #554c43;
+}
+#search > .input--cursor {
+    background: #ff6b35;
+    color: #0d0c0b;
+}
+
+/* ------------------------------------------------------------------ panes */
 
 #body {
     height: 1fr;
@@ -27,7 +62,7 @@ Screen {
 }
 
 #left {
-    width: 45%;
+    width: 42%;
     margin-right: 2;
 }
 
@@ -35,81 +70,85 @@ Screen {
     width: 1fr;
 }
 
-.pane-title {
-    height: 1;
-    color: #6b7280;
-    text-style: bold;
-    padding: 0 1;
+ListView, #deck {
+    background: #100e0d;
+    border: tall #2a241d;
+    border-title-color: #6b6055;
+    border-title-align: left;
+    scrollbar-size: 1 1;
+    scrollbar-background: #100e0d;
+    scrollbar-color: #3a322a;
+    scrollbar-color-hover: #e09b2a;
 }
 
 ListView {
-    background: #0e1017;
-    border: round #23273a;
     height: 1fr;
-    scrollbar-size: 1 1;
-    scrollbar-background: #0e1017;
-    scrollbar-color: #2a2e3e;
 }
 ListView:focus {
-    border: round #6d28d9;
+    border: tall #e09b2a;
+    border-title-color: #f2b23c;
 }
 
+/* Rows paint their own colours (see widgets.VideoItem), the CSS only
+   carries the backdrop so the highlight spans the full row width. */
 ListView > ListItem {
-    background: #0e1017;
-    padding: 0 1;
+    background: #100e0d;
+    padding: 0;
 }
 ListView > ListItem > Static {
     background: transparent;
     width: 1fr;
 }
-ListView > ListItem.-highlight {
-    background: #7c3aed;
-}
+ListView > ListItem.-highlight,
 ListView > ListItem.-highlight > Static.hl {
-    background: #7c3aed;
-    color: #ffffff;
+    background: #33240f;
 }
 ListView > ListItem.-hovered {
-    background: #1c1f2e;
+    background: #1a1512;
+}
+
+/* ------------------------------------------------------------------- deck */
+
+#deck {
+    height: auto;
+    padding: 1 2;
+    margin-bottom: 1;
 }
 
 #now-title {
     height: 1;
-    color: #f472b6;
+    color: #fff6e6;
     text-style: bold;
-    padding: 0 1;
 }
 
 #now-sub {
     height: 1;
-    color: #6b7280;
-    padding: 0 1;
+    color: #6b6055;
+    margin-bottom: 1;
 }
 
 #spectrum {
     height: 11;
-    margin: 1 1 0 1;
+    margin-bottom: 1;
 }
 
 #seek {
     height: 1;
-    margin: 0 1 1 1;
 }
 
-#suggestions {
-    height: 1fr;
-}
+/* ----------------------------------------------------------------- footer */
 
 #bottom {
     dock: bottom;
     height: 1;
-    background: #11131c;
+    background: #151210;
 }
 
 #bottom Footer {
     dock: none;
     width: 1fr;
     height: 1;
+    background: #151210;
 }
 
 #mem {
@@ -117,23 +156,26 @@ ListView > ListItem.-hovered {
     height: 1;
     padding: 0 2;
     text-align: right;
-    background: #11131c;
-    color: #4b5563;
-}
-
-Footer {
-    background: #11131c;
-    color: #6b7280;
+    background: #151210;
+    color: #4f473e;
 }
 
 FooterKey {
-    background: #11131c;
+    background: #151210;
+    color: #6b6055;
 }
 FooterKey > .footer-key--key {
-    background: #11131c;
-    color: #a78bfa;
+    background: #151210;
+    color: #e09b2a;
+    text-style: bold;
 }
 FooterKey > .footer-key--description {
-    background: #11131c;
-    color: #6b7280;
+    background: #151210;
+    color: #6b6055;
+}
+
+Toast {
+    background: #1a1512;
+    border: tall #ff5c2e;
+    color: #f0e6d8;
 }

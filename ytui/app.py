@@ -137,8 +137,13 @@ class YtuiApp(App):
     @on(ListView.Selected)
     def _selected(self, event: ListView.Selected) -> None:
         item = event.item
-        if isinstance(item, VideoItem):
-            self.play_video(item.video)
+        if not isinstance(item, VideoItem):
+            return
+        chain, item.pending_chain = item.pending_chain, None
+        if chain == 1:      # single click selects, double click plays
+            self._status("double-clic ou entrée pour lire")
+            return
+        self.play_video(item.video)
 
     def play_video(self, video: Video) -> None:
         self.current = video
@@ -151,20 +156,28 @@ class YtuiApp(App):
 
     @work(thread=True, exclusive=True, group="stream")
     def start_stream(self, video: Video) -> None:
+        def provider(refresh: bool) -> tuple[str | None, dict]:
+            """Called again by the player on every failed attempt, so each
+            retry gets a freshly signed URL rather than the dead one."""
+            if refresh or not video.stream_url:
+                sources.resolve_audio(video)
+            return video.stream_url, video.headers
+
         try:
-            sources.resolve_audio(video)
-            self.player.play(video.stream_url, video.duration, headers=video.headers)
+            provider(False)
+            self.player.play(provider, video.duration)
         except Exception as exc:
             self.call_from_thread(self._notify_error, exc)
             return
         # A pasted link starts with a placeholder title; resolving fills it in.
         self.call_from_thread(
-            self.query_one("#now-title", Static).update, f"♪  {video.title}"
+            self.query_one("#now-title", Static).update, video.title
         )
         self.call_from_thread(
             self.query_one("#now-sub", Static).update,
-            f"{video.uploader}   ·   audio seul   ·   {video.duration_str}",
+            f"{video.uploader or '—'}  ·  {video.duration_str}  ·  pulseaudio",
         )
+        self.call_from_thread(self._status, "lecture")
 
     @work(thread=True, exclusive=True, group="related")
     def load_suggestions(self, video: Video) -> None:

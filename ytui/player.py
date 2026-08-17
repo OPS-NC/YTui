@@ -18,11 +18,14 @@ import shutil
 import signal
 import subprocess
 import threading
+import time
 from array import array
 from collections import deque
 
 VIS_RATE = 16000            # analyser feed: 32 kB/s, negligible
 SINK_BUFFER_MS = 200
+ATTEMPTS = 5                # signed URLs are often dead on arrival
+OPEN_TIMEOUT = 5.0          # seconds to wait for the first samples
 WINDOW = 256                # samples per analysis window (16 ms)
 NBANDS = 32
 FMIN, FMAX = 55.0, 7000.0
@@ -44,8 +47,8 @@ class Player:
 
         self._samples_read = 0
         self._start_offset = 0.0
-        self._url: str | None = None
-        self._headers: dict = {}
+        self._provider = None
+        self._last_error = ""
         self._window = deque([0.0] * WINDOW, maxlen=WINDOW)
 
         self.paused = False
@@ -78,13 +81,56 @@ class Player:
 
     # ------------------------------------------------------------- transport
 
-    def play(self, url: str, duration: float | None = None, start: float = 0.0,
-             headers: dict | None = None) -> None:
+    def play(self, provider, duration: float | None = None, start: float = 0.0) -> None:
+        """`provider(refresh)` returns `(url, headers)`; called again with
+        refresh=True whenever an attempt fails.
+
+        Googlevideo hands out signed URLs that are frequently dead on arrival
+        (403 on the very first request, roughly two times out of three, headers
+        make no difference). So opening a stream is a retry loop, run off the
+        UI thread — never a single shot.
+        """
         if not shutil.which("ffmpeg"):
             raise RuntimeError("ffmpeg introuvable dans le PATH")
         self.stop()
+        with self._lock:
+            self._generation += 1
+            gen = self._generation
+            self._provider = provider
+            self.duration = duration
+            self._start_offset = max(0.0, start)
+            self._samples_read = 0
+            self.paused = False
+            self.loaded = True
+        threading.Thread(
+            target=self._launch, args=(provider, gen, start), daemon=True
+        ).start()
 
-        headers = headers if headers is not None else self._headers
+    def _launch(self, provider, gen: int, start: float) -> None:
+        last = "flux indisponible"
+        for attempt in range(ATTEMPTS):
+            if gen != self._generation:
+                return
+            try:
+                url, headers = provider(attempt > 0)
+            except Exception as exc:
+                last = str(exc)
+                continue
+            if not url:
+                continue
+            try:
+                if self._spawn(url, headers, gen, start):
+                    return
+                last = self._last_error or last
+            except Exception as exc:
+                last = str(exc)
+        if gen == self._generation:
+            self.loaded = False
+            if self._on_error:
+                self._on_error(RuntimeError(f"lecture impossible — {last}"))
+
+    def _spawn(self, url: str, headers: dict | None, gen: int, start: float) -> bool:
+        """Start ffmpeg and return True once audio actually flows."""
         vol = f"volume={self.volume:.3f}"
         cmd = [
             "ffmpeg", "-nostdin", "-loglevel", "error",
@@ -111,19 +157,29 @@ class Player:
             stderr=subprocess.PIPE, bufsize=0,
         )
 
-        with self._lock:
-            self._generation += 1
-            gen = self._generation
-            self._proc = proc
-            self.duration = duration
-            self._start_offset = max(0.0, start)
-            self._samples_read = 0
-            self.paused = False
-            self.loaded = True
-            self._url = url
-            self._headers = headers or {}
+        if gen != self._generation:
+            proc.kill()
+            return False
 
-        threading.Thread(target=self._read_vis, args=(proc, gen), daemon=True).start()
+        self._proc = proc
+        self._last_error = ""
+        started = threading.Event()
+        threading.Thread(
+            target=self._read_vis, args=(proc, gen, started), daemon=True
+        ).start()
+
+        # A dead signed URL fails on its very first request, so waiting for
+        # either the first samples or ffmpeg's exit settles it in a second.
+        deadline = time.monotonic() + OPEN_TIMEOUT
+        while time.monotonic() < deadline and gen == self._generation:
+            if started.wait(0.1):
+                return True
+            if proc.poll() is not None:
+                break
+        proc.kill()
+        if not self._last_error:
+            self._last_error = "aucun flux audio reçu"
+        return False
 
     def stop(self) -> None:
         with self._lock:
@@ -153,7 +209,7 @@ class Player:
         return self.paused
 
     def seek(self, seconds: float) -> None:
-        if not self.loaded or not self._url:
+        if not self.loaded or self._provider is None:
             return
         target = self.position + seconds
         if self.duration:
@@ -163,17 +219,18 @@ class Player:
     def set_volume(self, value: float) -> None:
         """Volume lives in ffmpeg's filter graph, so it restarts in place."""
         self.volume = min(1.5, max(0.0, value))
-        if self.loaded and self._url:
+        if self.loaded and self._provider is not None:
             self._restart(self.position)
 
     def _restart(self, position: float) -> None:
-        url, duration = self._url, self.duration
-        if url:
-            self.play(url, duration, position)
+        provider = self._provider
+        if provider is not None:
+            self.play(provider, self.duration, position)
 
     # ------------------------------------------------------------- internals
 
-    def _read_vis(self, proc: subprocess.Popen, gen: int) -> None:
+    def _read_vis(self, proc: subprocess.Popen, gen: int,
+                  started: threading.Event) -> None:
         """Drains the analyser pipe. Must never stall: ffmpeg blocks on a full
         pipe, and that would stall playback too. So this thread only reads and
         appends — all the maths happen in spectrum(), on the UI side."""
@@ -183,25 +240,27 @@ class Player:
                 raw = proc.stdout.read(chunk)
                 if not raw:
                     break
+                started.set()
                 block = array("h")
                 block.frombytes(raw[: len(raw) - len(raw) % 2])
                 self._samples_read += len(block)
                 # Keep only the tail: the window is all the analyser needs.
                 self._window.extend(s / 32768.0 for s in block[-WINDOW:])
         except Exception as exc:
-            if gen == self._generation and self._on_error:
-                self._on_error(exc)
+            self._last_error = str(exc)
         finally:
+            err = b""
+            try:
+                err = proc.stderr.read() or b""
+            except Exception:
+                pass
+            if err:
+                self._last_error = err.decode(errors="replace").strip().splitlines()[-1][:160]
+            if not started.is_set():
+                return          # never produced audio: _spawn will retry
             if gen == self._generation:
                 self.loaded = False
-                err = b""
-                try:
-                    err = proc.stderr.read() or b""
-                except Exception:
-                    pass
-                if err and self._on_error:
-                    self._on_error(RuntimeError(err.decode(errors="replace").strip()[:200]))
-                elif self._on_finished:
+                if self._on_finished:
                     try:
                         self._on_finished()
                     except Exception:
