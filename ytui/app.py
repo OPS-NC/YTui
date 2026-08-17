@@ -142,9 +142,9 @@ class YtuiApp(App):
 
     def play_video(self, video: Video) -> None:
         self.current = video
-        self.query_one("#now-title", Static).update(f"♪  {video.title}")
+        self.query_one("#now-title", Static).update(video.title)
         self.query_one("#now-sub", Static).update(
-            f"{video.uploader}   ·   chargement du flux audio…"
+            f"{video.uploader or '—'}  ·  ouverture du flux…"
         )
         self.start_stream(video)
         self.load_suggestions(video)
@@ -205,8 +205,9 @@ class YtuiApp(App):
 
     def action_stop(self) -> None:
         self.player.stop()
-        self.query_one("#now-title", Static).update("En attente…")
-        self.query_one("#now-sub", Static).update("")
+        self.query_one("#now-title", Static).update("— aucune piste —")
+        self.query_one("#now-sub", Static).update("prêt")
+        self._status("arrêt")
 
     def action_focus_search(self) -> None:
         self.query_one("#search", Input).focus()
@@ -214,9 +215,10 @@ class YtuiApp(App):
     # ----------------------------------------------------------------- misc
 
     def _status(self, message: str) -> None:
-        self.query_one("#brand", Static).update(
-            f"◈  y t u i   ·   {message}"
-        )
+        try:
+            self.query_one("#status", Static).update(message.upper())
+        except NoMatches:
+            pass
 
     def _notify_error(self, exc: Exception) -> None:
         self.notify(str(exc) or exc.__class__.__name__, severity="error", timeout=6)
