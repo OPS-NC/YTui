@@ -2,7 +2,7 @@
    Warm near-black, brushed-metal hairlines, amber legends, ember accents. */
 
 Screen {
-    background: #0d0c0b;
+    background: #151312;
     color: #cbc0b2;
 }
 
@@ -11,7 +11,7 @@ Screen {
 #topbar {
     dock: top;
     height: 1;
-    background: #151210;
+    background: #1e1a17;
 }
 
 #brand {
@@ -19,7 +19,7 @@ Screen {
     padding: 0 2;
     color: #ff6b35;
     text-style: bold;
-    background: #151210;
+    background: #1e1a17;
 }
 
 #status {
@@ -27,7 +27,7 @@ Screen {
     padding: 0 2;
     text-align: right;
     color: #6b6055;
-    background: #151210;
+    background: #1e1a17;
 }
 
 /* ----------------------------------------------------------------- search */
@@ -35,23 +35,23 @@ Screen {
 #search {
     margin: 1 2 0 2;
     height: 3;
-    border: tall #2a241d;
+    border: tall #6b4a1e;
     border-title-color: #6b6055;
     border-title-align: left;
-    background: #121010;
+    background: #1a1716;
     color: #f0e6d8;
 }
 #search:focus {
     border: tall #e09b2a;
     border-title-color: #f2b23c;
-    background: #17130f;
+    background: #211b15;
 }
 #search > .input--placeholder {
     color: #554c43;
 }
 #search > .input--cursor {
     background: #ff6b35;
-    color: #0d0c0b;
+    color: #151312;
 }
 
 /* ------------------------------------------------------------------ panes */
@@ -71,13 +71,13 @@ Screen {
 }
 
 ListView, #deck {
-    background: #100e0d;
-    border: tall #2a241d;
+    background: #191615;
+    border: tall #6b4a1e;
     border-title-color: #6b6055;
     border-title-align: left;
     scrollbar-size: 1 1;
-    scrollbar-background: #100e0d;
-    scrollbar-color: #3a322a;
+    scrollbar-background: #191615;
+    scrollbar-color: #443b32;
     scrollbar-color-hover: #e09b2a;
 }
 
@@ -92,7 +92,7 @@ ListView:focus {
 /* Rows paint their own colours (see widgets.VideoItem), the CSS only
    carries the backdrop so the highlight spans the full row width. */
 ListView > ListItem {
-    background: #100e0d;
+    background: #191615;
     padding: 0;
 }
 ListView > ListItem > Static {
@@ -101,10 +101,10 @@ ListView > ListItem > Static {
 }
 ListView > ListItem.-highlight,
 ListView > ListItem.-highlight > Static.hl {
-    background: #33240f;
+    background: #3b2b14;
 }
 ListView > ListItem.-hovered {
-    background: #1a1512;
+    background: #221c18;
 }
 
 /* ------------------------------------------------------------------- deck */
@@ -141,14 +141,14 @@ ListView > ListItem.-hovered {
 #bottom {
     dock: bottom;
     height: 1;
-    background: #151210;
+    background: #1e1a17;
 }
 
 #bottom Footer {
     dock: none;
     width: 1fr;
     height: 1;
-    background: #151210;
+    background: #1e1a17;
 }
 
 #mem {
@@ -156,26 +156,26 @@ ListView > ListItem.-hovered {
     height: 1;
     padding: 0 2;
     text-align: right;
-    background: #151210;
+    background: #1e1a17;
     color: #4f473e;
 }
 
 FooterKey {
-    background: #151210;
+    background: #1e1a17;
     color: #6b6055;
 }
 FooterKey > .footer-key--key {
-    background: #151210;
+    background: #1e1a17;
     color: #e09b2a;
     text-style: bold;
 }
 FooterKey > .footer-key--description {
-    background: #151210;
+    background: #1e1a17;
     color: #6b6055;
 }
 
 Toast {
-    background: #1a1512;
+    background: #221c18;
     border: tall #ff5c2e;
     color: #f0e6d8;
 }

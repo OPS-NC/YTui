@@ -39,7 +39,7 @@ _RAMP = [
     (0xE0, 0x32, 0x1F),
 ]
 
-_CHASSIS = Color.from_rgb(0x2A, 0x24, 0x1D)      # unlit segment
+_CHASSIS = Color.from_rgb(0x33, 0x2C, 0x24)      # unlit segment
 _EMBER = Color.from_rgb(0xFF, 0x6B, 0x35)
 
 
@@ -193,9 +193,9 @@ class VideoItem(ListItem):
     def _text(self, hl: bool) -> Text:
         """Rows carry explicit colours, so the highlight is repainted here:
         CSS cannot override a Rich style already baked into the text."""
-        bg = "on #33240f" if hl else ""
+        bg = "on #3b2b14" if hl else ""
         text = Text(no_wrap=True, overflow="ellipsis", style=bg)
-        text.append("▌ " if hl else "  ", style=f"{'#ff6b35' if hl else '#151210'} {bg}")
+        text.append("▌ " if hl else "  ", style=f"{'#ff6b35' if hl else '#191615'} {bg}")
         text.append(
             f"{self.video.duration_str:>7}  ",
             style=f"{'#f2b23c' if hl else '#7d7266'} {bg}",
