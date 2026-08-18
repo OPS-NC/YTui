@@ -32,6 +32,7 @@ class Video:
     stream_url: str | None = field(default=None, repr=False)
     headers: dict = field(default_factory=dict, repr=False)
     source: str = field(default="", repr=False)
+    has_video: bool = field(default=False, repr=False)
 
     @property
     def url(self) -> str:
@@ -195,6 +196,12 @@ STRATEGIES = (
               "bestaudio/18/best[acodec!=none]"),
 )
 
+# Only a progressive stream carries picture and sound in one URL, which is what
+# the single-ffmpeg design needs to show the clip without a second download.
+VIDEO_STRATEGY = _Strategy("clip 360p",
+                           ("--extractor-args", "youtube:player_client=android"),
+                           "18/best[acodec!=none][vcodec!=none]")
+
 _PRINT = "%(url)s\t%(duration)s\t%(title)s\t%(uploader)s\t%(vcodec)s\t%(http_headers)j"
 
 # What worked for the previous track, tried first for the next one: whichever
@@ -227,7 +234,7 @@ def stream_playable(url: str, headers: dict) -> bool:
         return False
 
 
-def _resolve_with(video: Video, strategy: _Strategy) -> tuple[str, dict, str]:
+def _resolve_with(video: Video, strategy: _Strategy) -> tuple[str, dict, str, bool]:
     out, err = _run([*strategy.extractor_args, "-f", strategy.fmt,
                      # The signed URL is only valid for the exact headers
                      # yt-dlp negotiated; without them googlevideo answers 403.
@@ -246,23 +253,29 @@ def _resolve_with(video: Video, strategy: _Strategy) -> tuple[str, dict, str]:
         headers = {k: v for k, v in json.loads(parts[5]).items() if isinstance(v, str)}
     except (ValueError, AttributeError, TypeError):
         headers = {}
-    kind = strategy.label if parts[4] in ("none", "", "NA") else f"{strategy.label} 360p"
-    return parts[0], headers, kind
+    has_video = parts[4] not in ("none", "", "NA")
+    kind = f"{strategy.label} 360p" if has_video and "360p" not in strategy.label \
+        else strategy.label
+    return parts[0], headers, kind, has_video
 
 
-def resolve_audio(video: Video) -> Video:
+def resolve_audio(video: Video, want_video: bool = False) -> Video:
     """Fill in a stream URL that has been checked against the real fetch.
 
     Every strategy is tried in order and validated; only a URL that actually
-    served bytes is handed to the player.
+    served bytes is handed to the player. `want_video` puts the progressive
+    stream first — the audio-only ones stay in the list, so asking for the clip
+    can never cost the sound.
     """
     global _preferred
     last = "flux audio introuvable"
-    order = sorted(range(len(STRATEGIES)), key=lambda i: i != _preferred)
-    for index in order:
-        strategy = STRATEGIES[index]
+    order = [STRATEGIES[i]
+             for i in sorted(range(len(STRATEGIES)), key=lambda i: i != _preferred)]
+    if want_video:
+        order.insert(0, VIDEO_STRATEGY)
+    for strategy in order:
         try:
-            url, headers, kind = _resolve_with(video, strategy)
+            url, headers, kind, has_video = _resolve_with(video, strategy)
         except Exception as exc:
             last = str(exc)
             continue
@@ -270,7 +283,9 @@ def resolve_audio(video: Video) -> Video:
             last = (f"403 sur « {strategy.label} » — YouTube exige un PO token "
                     "pour ce client")
             continue
-        video.stream_url, video.headers, video.source = url, headers, kind
-        _preferred = index
+        video.stream_url, video.headers = url, headers
+        video.source, video.has_video = kind, has_video
+        if strategy in STRATEGIES:
+            _preferred = STRATEGIES.index(strategy)
         return video
     raise RuntimeError(last)

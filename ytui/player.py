@@ -15,6 +15,7 @@ seek/volume restart the process at the current position.
 from __future__ import annotations
 
 import math
+import os
 import shutil
 import signal
 import subprocess
@@ -36,6 +37,11 @@ SINK_BUFFER_MS = 100 if IS_MAC else 200
 # a race against expiry and a freshly signed URL fixes them.
 ATTEMPTS = 4
 OPEN_TIMEOUT = 5.0          # seconds to wait for the first samples
+# Decode grid for the optional clip: fixed, so a terminal resize never has to
+# restart ffmpeg — the widget samples this buffer down to whatever cell grid it
+# has. 320x180 at 12 fps is 2 Mo/s through a pipe, and 16:9 like the source.
+VID_W, VID_H, VID_FPS = 320, 180, 12
+VID_FRAME = VID_W * VID_H * 3
 WINDOW = 256                # samples per analysis window (16 ms)
 NBANDS = 32
 FMIN, FMAX = 55.0, 7000.0
@@ -84,6 +90,11 @@ class Player:
         self.duration: float | None = None
         self.loaded = False
         self.backend = BACKEND
+        # Set by the app before play(): asking ffmpeg to map a video stream that
+        # the input does not have is fatal, so the caller decides.
+        self.video = False
+        self._frame: bytes | None = None
+        self._frame_no = 0
 
         freqs = _band_freqs(NBANDS)
         # Pre-computed Goertzel coefficients: the whole analyser cost is
@@ -183,16 +194,33 @@ class Player:
         else:
             sink = ["-f", "pulse", "-buffer_duration", str(SINK_BUFFER_MS), "ytui"]
         cmd += [
-            "-i", url, "-vn", "-sn", "-dn",
+            "-i", url, "-sn", "-dn",
             "-map", "0:a:0", "-af", vol, *sink,
             # 2. the analyser feed, same clock, 1/12th of the bandwidth
             "-map", "0:a:0", "-af", f"{vol},aresample={VIS_RATE}",
             "-ac", "1", "-f", "s16le", "pipe:1",
         ]
-        proc = subprocess.Popen(
-            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, bufsize=0,
-        )
+        # 3. the clip, when asked for: raw frames on a third pipe. Same process,
+        # so the audio sink keeps pacing the picture and nothing can drift.
+        read_fd = write_fd = None
+        if self.video:
+            read_fd, write_fd = os.pipe()
+            cmd += [
+                "-map", "0:v:0",
+                "-vf", f"fps={VID_FPS},scale={VID_W}:{VID_H}:flags=bilinear",
+                "-pix_fmt", "rgb24", "-f", "rawvideo", f"pipe:{write_fd}",
+            ]
+        else:
+            cmd.insert(cmd.index("-i"), "-vn")
+        try:
+            proc = subprocess.Popen(
+                cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, bufsize=0,
+                pass_fds=() if write_fd is None else (write_fd,),
+            )
+        finally:
+            if write_fd is not None:
+                os.close(write_fd)
 
         if gen != self._generation:
             proc.kill()
@@ -204,6 +232,10 @@ class Player:
         threading.Thread(
             target=self._read_vis, args=(proc, gen, started), daemon=True
         ).start()
+        if read_fd is not None:
+            threading.Thread(
+                target=self._read_video, args=(read_fd, gen), daemon=True
+            ).start()
 
         # A dead signed URL fails on its very first request, so waiting for
         # either the first samples or ffmpeg's exit settles it in a second.
@@ -232,6 +264,7 @@ class Player:
             except Exception:
                 pass
         self._window.extend([0.0] * WINDOW)
+        self._frame = None
 
     def toggle_pause(self) -> bool:
         """SIGSTOP/SIGCONT: ffmpeg stops feeding PulseAudio, nothing drifts."""
@@ -263,6 +296,32 @@ class Player:
         provider = self._provider
         if provider is not None:
             self.play(provider, self.duration, position)
+
+    # ----------------------------------------------------------------- clip
+
+    def frame(self) -> tuple[bytes, int, int, int] | None:
+        """Latest decoded frame: (rgb24 bytes, width, height, frame number)."""
+        data = self._frame
+        return None if data is None else (data, VID_W, VID_H, self._frame_no)
+
+    def _read_video(self, fd: int, gen: int) -> None:
+        """Drains the picture pipe, keeping only the newest frame. Like the
+        analyser pipe this must never stall: a full pipe blocks ffmpeg, which
+        would block the sound as well. So it reads flat out and drops."""
+        buffer = bytearray()
+        try:
+            with os.fdopen(fd, "rb", 0) as pipe:
+                while gen == self._generation:
+                    chunk = pipe.read(VID_FRAME - len(buffer))
+                    if not chunk:
+                        break
+                    buffer += chunk
+                    if len(buffer) >= VID_FRAME:
+                        self._frame = bytes(buffer)
+                        self._frame_no += 1
+                        buffer.clear()
+        except OSError:
+            pass
 
     # ------------------------------------------------------------- internals
 

@@ -179,3 +179,29 @@ Toast {
     border: tall #ff5c2e;
     color: #f0e6d8;
 }
+
+/* ------------------------------------------------------------------- clip */
+
+#clip-layer {
+    height: 1fr;
+    background: #000000;
+}
+
+#clip {
+    height: 1fr;
+}
+
+/* Caption and transport sit under the picture, on the same black ground. */
+#clip-title {
+    height: 1;
+    padding: 0 2;
+    color: #fff6e6;
+    text-style: bold;
+    background: #000000;
+}
+
+#clip-seek {
+    height: 1;
+    padding: 0 2;
+    background: #000000;
+}
