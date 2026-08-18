@@ -32,6 +32,28 @@ macOS :
 brew install python ffmpeg
 ```
 
+## Usage
+
+| Touche / geste     | Action                                    |
+|--------------------|-------------------------------------------|
+| `/`                | Focus recherche                           |
+| `↑` `↓`            | Historique des recherches (champ actif)   |
+| `Entrée`           | Lire la sélection                         |
+| `Espace`           | Pause / reprise                           |
+| `←` `→`            | Reculer / avancer de 10 s                 |
+| `n`                | Piste suivante                            |
+| `+` `-`            | Volume                                    |
+| clic sur l'image   | Clip en plein écran                       |
+| `v`                | Idem au clavier                           |
+| `Échap`            | Revenir à la platine                      |
+| `s` / `q`          | Arrêt / quitter                           |
+
+La platine affiche le clip à la place du spectre dès que le flux porte une
+piste vidéo ; sinon l'analyseur reste à l'écran. L'image est rendue en
+demi-blocs (`▀`, pixel du haut en couleur de texte, pixel du bas en fond),
+donc un terminal truecolor est nécessaire. La même instance de ffmpeg s'en
+charge sur un tube dédié : passer en plein écran ne réouvre pas le flux.
+
 ## Lancement
 
 ```

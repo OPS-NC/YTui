@@ -239,6 +239,12 @@ class Clip(Widget):
         self._rows: list[int] = []
         self._styles: dict[bytes, Style] = {}
 
+    def _on_click(self, event: events.Click) -> None:
+        """Clicking the picture swaps between the deck panel and full screen."""
+        toggle = getattr(self.app, "action_toggle_fullscreen", None)
+        if toggle is not None:
+            toggle()
+
     def poll(self) -> None:
         snap = self.player.frame()
         if snap is None:
