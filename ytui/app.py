@@ -14,7 +14,7 @@ from . import meminfo, sources
 from .history import SearchHistory
 from .player import Player
 from .sources import Video
-from .widgets import Clip, SearchInput, SeekBar, Spectrum, VideoItem
+from .widgets import SearchInput, Clip, SeekBar, Spectrum, VideoItem
 
 FPS = 20
 CLICK_WINDOW = 0.8      # seconds a click keeps authority over ListView.Selected
