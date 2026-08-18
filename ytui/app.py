@@ -34,7 +34,8 @@ class YtuiApp(App):
         ("right", "seek_fwd", "+10s"),
         ("plus,equals_sign", "volume_up", "Vol +"),
         ("minus", "volume_down", "Vol -"),
-        ("v", "toggle_clip", "Clip"),
+        ("v", "toggle_fullscreen", "Plein écran"),
+        ("escape", "clip_small", "Réduire"),
         ("slash", "focus_search", "Recherche"),
         ("s", "stop", "Stop"),
         ("q", "quit", "Quitter"),
@@ -51,7 +52,7 @@ class YtuiApp(App):
         )
         self.history = SearchHistory()
         self.current: Video | None = None
-        self.clip = False
+        self.fullscreen = False
         self._click_stamp: tuple[int, float, int] = (0, 0.0, 0)
 
     # ------------------------------------------------------------------ view
@@ -72,15 +73,19 @@ class YtuiApp(App):
                 with Vertical(id="deck"):
                     yield Static("— aucune piste —", id="now-title")
                     yield Static("prêt", id="now-sub")
+                    # La platine montre l'image quand il y en a une, et retombe
+                    # sur l'analyseur pour un flux sans piste vidéo.
+                    yield Clip(self.player, id="clip")
                     yield Spectrum(self.player, id="spectrum")
                     yield SeekBar(id="seek")
                 yield ListView(id="suggestions")
         with Horizontal(id="bottom"):
             yield Footer()
             yield Static("", id="mem")
-        # Full-screen clip: hidden until « v », transport laid over the picture.
+        # Full-screen clip: hidden until the picture is clicked, transport laid
+        # over it; « Échap » comes back to the deck.
         with Vertical(id="clip-layer"):
-            yield Clip(self.player, id="clip")
+            yield Clip(self.player, id="clip-full")
             yield Static("", id="clip-title")
             yield SeekBar(id="clip-seek")
 
@@ -92,6 +97,7 @@ class YtuiApp(App):
         self.query_one("#search", Input).border_title = "R E C H E R C H E"
         self.query_one("#search", Input).focus()
         self.query_one("#clip-layer", Vertical).display = False
+        self._apply_deck()
         self.set_interval(1 / FPS, self._tick)
         self.set_interval(1.0, self._tick_mem)
         self._tick_mem()
@@ -108,12 +114,14 @@ class YtuiApp(App):
 
     def _tick(self) -> None:
         try:
-            spectrum = self.query_one(Spectrum)
+            spectrum = self.query_one("#spectrum", Spectrum)
             bars = list(self.query(SeekBar))
         except NoMatches:   # fired while the screen is being torn down
             return
-        if self.clip:
-            self.query_one(Clip).poll()
+        if self.fullscreen:
+            self.query_one("#clip-full", Clip).poll()
+        elif self.query_one("#clip", Clip).display:
+            self.query_one("#clip", Clip).poll()
         elif self.player.loaded or any(spectrum._bands or []):
             spectrum.poll()
         for seek in bars:
@@ -183,7 +191,7 @@ class YtuiApp(App):
 
     def play_video(self, video: Video) -> None:
         self.current = video
-        if self.clip:
+        if self.fullscreen:
             self._refresh_clip_title()
         self.query_one("#now-title", Static).update(video.title)
         self.query_one("#now-sub", Static).update(
@@ -194,7 +202,10 @@ class YtuiApp(App):
 
     @work(thread=True, exclusive=True, group="stream")
     def start_stream(self, video: Video, start: float = 0.0) -> None:
-        want_video = self.clip
+        # L'image est demandée d'emblée : la platine l'affiche à la place du
+        # spectre, et le plein écran devient une simple bascule d'affichage,
+        # sans réouverture du flux.
+        want_video = True
 
         def provider(refresh: bool) -> tuple[str | None, dict]:
             """Called again by the player on every failed attempt, so each
@@ -211,9 +222,10 @@ class YtuiApp(App):
         except Exception as exc:
             self.call_from_thread(self._notify_error, exc)
             return
-        if want_video and not video.has_video:
+        self.call_from_thread(self._apply_deck)
+        if not video.has_video:
             self.call_from_thread(
-                self.notify, "Aucune piste vidéo sur ce flux — son uniquement.",
+                self.notify, "Aucune piste vidéo sur ce flux — spectre affiché.",
                 severity="warning",
             )
         # A pasted link starts with a placeholder title; resolving fills it in.
@@ -246,21 +258,31 @@ class YtuiApp(App):
                 return
         self._status("Aucune suggestion à enchaîner.")
 
-    def action_toggle_clip(self) -> None:
-        """« v » swaps the whole chassis for the picture, and back."""
-        self.clip = not self.clip
+    def _apply_deck(self) -> None:
+        """Picture in the deck when the stream carries one, analyser otherwise."""
+        has_picture = bool(self.current and self.current.has_video)
+        self.query_one("#clip", Clip).display = has_picture
+        self.query_one("#spectrum", Spectrum).display = not has_picture
+
+    def action_toggle_fullscreen(self) -> None:
+        """A click on the picture, or « v », blows it up to the whole window."""
+        if not self.fullscreen and not (self.current and self.current.has_video):
+            self.notify("Aucune image sur ce flux.", severity="warning", timeout=3)
+            return
+        self.fullscreen = not self.fullscreen
         for selector in ("#topbar", "#search", "#body", "#bottom"):
-            self.query_one(selector).display = not self.clip
-        self.query_one("#clip-layer", Vertical).display = self.clip
-        if self.clip:
+            self.query_one(selector).display = not self.fullscreen
+        self.query_one("#clip-layer", Vertical).display = self.fullscreen
+        if self.fullscreen:
             self._refresh_clip_title()
-            self.notify("Clip activé — « v » pour revenir à la platine", timeout=4)
+            self.notify("Plein écran — « Échap » pour revenir", timeout=3)
         else:
-            self.notify("Clip désactivé — retour à la platine", timeout=3)
-        # The picture only exists on a progressive stream, so switching modes
-        # re-opens the current track where it stands.
-        if self.current is not None and self.player.loaded:
-            self.start_stream(self.current, self.player.position)
+            self.notify("Retour à la platine", timeout=2)
+
+    def action_clip_small(self) -> None:
+        """« Échap » only ever shrinks: it never opens the full screen."""
+        if self.fullscreen:
+            self.action_toggle_fullscreen()
 
     def _refresh_clip_title(self) -> None:
         video = self.current

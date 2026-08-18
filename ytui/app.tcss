@@ -187,7 +187,13 @@ Toast {
     background: #000000;
 }
 
+/* The deck panel: same slot and height as the analyser it replaces. */
 #clip {
+    height: 11;
+    margin-bottom: 1;
+}
+
+#clip-full {
     height: 1fr;
 }
 
