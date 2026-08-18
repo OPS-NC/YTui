@@ -49,6 +49,29 @@ fourni et toute recherche échoue (`CERTIFICATE_VERIFY_FAILED`). `certifi` fait
 partie des dépendances, ce qui suffit à yt-dlp ; sinon lancez une fois
 `/Applications/Python 3.x/Install Certificates.command`.
 
+## Clip en plein écran
+
+`v` remplace le châssis par l'image, `v` à nouveau le ramène ; une notification
+confirme chaque bascule. Le clip est rendu en demi-blocs : le caractère `▀`
+porte le pixel du haut en couleur de texte et celui du bas en couleur de fond,
+soit deux pixels par cellule et la profondeur de couleur complète du terminal
+— un terminal truecolor est donc nécessaire (iTerm2, Ghostty, WezTerm).
+
+Aucun second processus : la même instance de ffmpeg gagne une troisième sortie
+(`-map 0:v:0 -f rawvideo`) sur un tube dédié, donc le sink audio continue de
+cadencer l'image et rien ne peut dériver. La grille de décodage est fixe
+(320×180 à 12 im/s), le widget la ré-échantillonne vers la grille de cellules
+disponible : redimensionner la fenêtre ne relance pas ffmpeg.
+
+Mesuré en plein écran 140×38 : 3,9 ms par trame de rendu, soit 5 % d'un cœur à
+12 im/s, et 94 → 119 Mo de RSS pour l'ensemble ffmpeg compris.
+
+L'image n'existe que sur un flux progressif — voir ci-dessous. Activer le clip
+force donc la résolution vers un tel flux et relance la piste où elle en est ;
+si aucun n'est disponible, le son continue seul et le dit. Quand le repli muxé
+est déjà en cours, ce qui est le cas courant aujourd'hui, l'affichage ne coûte
+pas un octet de plus : la vidéo était téléchargée puis jetée.
+
 ## Flux, 403 et qualité
 
 Depuis 2025 YouTube exige un *PO token* pour la plupart de ses clients. Les
@@ -114,6 +137,7 @@ Le champ de recherche accepte une requête libre, une URL YouTube
 | `Espace`    | Pause / reprise         |
 | `gauche` `droite` | Reculer / avancer de 10 s |
 | `n`         | Piste suivante          |
+| `v`         | Clip plein écran        |
 | `+` `-`     | Volume                  |
 | `s`         | Arrêt                   |
 | `q`         | Quitter                 |

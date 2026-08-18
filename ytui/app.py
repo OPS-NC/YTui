@@ -13,7 +13,7 @@ from textual.widgets import Footer, Input, ListView, Static
 from . import meminfo, sources
 from .player import Player
 from .sources import Video
-from .widgets import SeekBar, Spectrum, VideoItem
+from .widgets import Clip, SeekBar, Spectrum, VideoItem
 
 FPS = 20
 CLICK_WINDOW = 0.8      # seconds a click keeps authority over ListView.Selected
@@ -33,6 +33,7 @@ class YtuiApp(App):
         ("right", "seek_fwd", "+10s"),
         ("plus,equals_sign", "volume_up", "Vol +"),
         ("minus", "volume_down", "Vol -"),
+        ("v", "toggle_clip", "Clip"),
         ("slash", "focus_search", "Recherche"),
         ("s", "stop", "Stop"),
         ("q", "quit", "Quitter"),
@@ -48,6 +49,7 @@ class YtuiApp(App):
             ),
         )
         self.current: Video | None = None
+        self.clip = False
         self._click_stamp: tuple[int, float, int] = (0, 0.0, 0)
 
     # ------------------------------------------------------------------ view
@@ -73,6 +75,11 @@ class YtuiApp(App):
         with Horizontal(id="bottom"):
             yield Footer()
             yield Static("", id="mem")
+        # Full-screen clip: hidden until « v », transport laid over the picture.
+        with Vertical(id="clip-layer"):
+            yield Clip(self.player, id="clip")
+            yield Static("", id="clip-title")
+            yield SeekBar(id="clip-seek")
 
     def on_mount(self) -> None:
         # Inline border titles: the panel frame doubles as its own label.
@@ -81,6 +88,7 @@ class YtuiApp(App):
         self.query_one("#deck", Vertical).border_title = "P L A T I N E"
         self.query_one("#search", Input).border_title = "R E C H E R C H E"
         self.query_one("#search", Input).focus()
+        self.query_one("#clip-layer", Vertical).display = False
         self.set_interval(1 / FPS, self._tick)
         self.set_interval(1.0, self._tick_mem)
         self._tick_mem()
@@ -98,14 +106,17 @@ class YtuiApp(App):
     def _tick(self) -> None:
         try:
             spectrum = self.query_one(Spectrum)
-            seek = self.query_one(SeekBar)
+            bars = list(self.query(SeekBar))
         except NoMatches:   # fired while the screen is being torn down
             return
-        if self.player.loaded or any(spectrum._bands or []):
+        if self.clip:
+            self.query_one(Clip).poll()
+        elif self.player.loaded or any(spectrum._bands or []):
             spectrum.poll()
-        seek.position = self.player.position
-        seek.duration = self.player.duration or 0.0
-        seek.paused = self.player.paused
+        for seek in bars:
+            seek.position = self.player.position
+            seek.duration = self.player.duration or 0.0
+            seek.paused = self.player.paused
 
     # --------------------------------------------------------------- search
 
@@ -168,6 +179,8 @@ class YtuiApp(App):
 
     def play_video(self, video: Video) -> None:
         self.current = video
+        if self.clip:
+            self._refresh_clip_title()
         self.query_one("#now-title", Static).update(video.title)
         self.query_one("#now-sub", Static).update(
             f"{video.uploader or '—'}  ·  ouverture du flux…"
@@ -176,20 +189,29 @@ class YtuiApp(App):
         self.load_suggestions(video)
 
     @work(thread=True, exclusive=True, group="stream")
-    def start_stream(self, video: Video) -> None:
+    def start_stream(self, video: Video, start: float = 0.0) -> None:
+        want_video = self.clip
+
         def provider(refresh: bool) -> tuple[str | None, dict]:
             """Called again by the player on every failed attempt, so each
-            retry gets a freshly signed URL rather than the dead one."""
-            if refresh or not video.stream_url:
-                sources.resolve_audio(video)
+            retry gets a freshly signed URL rather than the dead one. A clip
+            asked for over an audio-only URL also forces a re-resolve."""
+            if refresh or not video.stream_url or (want_video and not video.has_video):
+                sources.resolve_audio(video, want_video=want_video)
             return video.stream_url, video.headers
 
         try:
             provider(False)
-            self.player.play(provider, video.duration)
+            self.player.video = want_video and video.has_video
+            self.player.play(provider, video.duration, start)
         except Exception as exc:
             self.call_from_thread(self._notify_error, exc)
             return
+        if want_video and not video.has_video:
+            self.call_from_thread(
+                self.notify, "Aucune piste vidéo sur ce flux — son uniquement.",
+                severity="warning",
+            )
         # A pasted link starts with a placeholder title; resolving fills it in.
         self.call_from_thread(
             self.query_one("#now-title", Static).update, video.title
@@ -219,6 +241,31 @@ class YtuiApp(App):
                 self.play_video(item.video)
                 return
         self._status("Aucune suggestion à enchaîner.")
+
+    def action_toggle_clip(self) -> None:
+        """« v » swaps the whole chassis for the picture, and back."""
+        self.clip = not self.clip
+        for selector in ("#topbar", "#search", "#body", "#bottom"):
+            self.query_one(selector).display = not self.clip
+        self.query_one("#clip-layer", Vertical).display = self.clip
+        if self.clip:
+            self._refresh_clip_title()
+            self.notify("Clip activé — « v » pour revenir à la platine", timeout=4)
+        else:
+            self.notify("Clip désactivé — retour à la platine", timeout=3)
+        # The picture only exists on a progressive stream, so switching modes
+        # re-opens the current track where it stands.
+        if self.current is not None and self.player.loaded:
+            self.start_stream(self.current, self.player.position)
+
+    def _refresh_clip_title(self) -> None:
+        video = self.current
+        if video is None:
+            self.query_one("#clip-title", Static).update("— aucune piste —")
+            return
+        self.query_one("#clip-title", Static).update(
+            f"{video.title}   ·   {video.uploader or '—'}   ·   {video.source or ''}"
+        )
 
     def action_toggle_pause(self) -> None:
         if self.player.loaded:

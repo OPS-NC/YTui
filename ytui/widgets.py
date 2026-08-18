@@ -190,3 +190,91 @@ class VideoItem(ListItem):
         self.set_class(value, "-highlight")     # keep ListItem's own behaviour
         self._label.update(self._text(value))
         self._label.set_class(value, "hl")
+
+
+class Clip(Widget):
+    """The video track drawn with half-blocks.
+
+    One cell carries two pixels — `▀` painted with the top pixel's colour over
+    the bottom pixel's background — so the picture keeps the terminal's full
+    colour depth at twice the vertical resolution. The decode grid is fixed
+    (player.VID_W x VID_H) and sampled down here, which means a window resize
+    costs a table rebuild instead of an ffmpeg restart.
+    """
+
+    _STYLE_CACHE_MAX = 8192
+
+    def __init__(self, player, **kwargs):
+        super().__init__(**kwargs)
+        self.player = player
+        self._snap: tuple[bytes, int, int, int] | None = None
+        self._shown = -1
+        self._grid: tuple[int, int, int, int] = (0, 0, 0, 0)
+        self._cols: list[int] = []
+        self._rows: list[int] = []
+        self._styles: dict[bytes, Style] = {}
+
+    def poll(self) -> None:
+        snap = self.player.frame()
+        if snap is None:
+            if self._snap is not None:
+                self._snap = None
+                self.refresh()
+            return
+        if snap[3] != self._shown:
+            self._snap, self._shown = snap, snap[3]
+            self.refresh()
+
+    def _tables(self, width: int, height: int, src_w: int, src_h: int) -> None:
+        """Nearest-neighbour sampling tables, letterboxed to keep the aspect
+        ratio. -1 marks a padding column or row."""
+        if self._grid == (width, height, src_w, src_h):
+            return
+        self._grid = (width, height, src_w, src_h)
+        out_w, out_h = width, height * 2       # half-blocks: square-ish pixels
+        draw_w = min(out_w, max(1, round(out_h * src_w / src_h)))
+        draw_h = min(out_h, max(1, round(out_w * src_h / src_w)))
+        off_x, off_y = (out_w - draw_w) // 2, (out_h - draw_h) // 2
+        self._cols = [-1 if x < off_x or x >= off_x + draw_w
+                      else min(src_w - 1, (x - off_x) * src_w // draw_w)
+                      for x in range(out_w)]
+        self._rows = [-1 if y < off_y or y >= off_y + draw_h
+                      else min(src_h - 1, (y - off_y) * src_h // draw_h)
+                      for y in range(out_h)]
+
+    def _style(self, top: bytes, bottom: bytes) -> Style:
+        key = top + bottom
+        style = self._styles.get(key)
+        if style is None:
+            if len(self._styles) >= self._STYLE_CACHE_MAX:
+                self._styles.clear()
+            style = Style(color=Color.from_rgb(*top), bgcolor=Color.from_rgb(*bottom))
+            self._styles[key] = style
+        return style
+
+    def render_line(self, y: int) -> Strip:
+        width, height = self.size.width, self.size.height
+        if self._snap is None or width <= 0 or height <= 0:
+            return Strip.blank(width)
+
+        data, src_w, src_h, _ = self._snap
+        self._tables(width, height, src_w, src_h)
+        top_row, bottom_row = self._rows[2 * y], self._rows[2 * y + 1]
+        if top_row < 0 and bottom_row < 0:
+            return Strip.blank(width)
+
+        black = b"\x00\x00\x00"
+        top_base = top_row * src_w * 3 if top_row >= 0 else -1
+        bottom_base = bottom_row * src_w * 3 if bottom_row >= 0 else -1
+
+        segments = []
+        for col in self._cols:
+            if col < 0:
+                segments.append(Segment(" "))
+                continue
+            shift = col * 3
+            top = data[top_base + shift:top_base + shift + 3] if top_base >= 0 else black
+            bottom = (data[bottom_base + shift:bottom_base + shift + 3]
+                      if bottom_base >= 0 else black)
+            segments.append(Segment("▀", self._style(top, bottom)))
+        return Strip(segments, width).simplify()
