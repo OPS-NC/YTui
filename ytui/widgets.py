@@ -17,8 +17,9 @@ from textual.app import RenderResult
 from textual.reactive import reactive
 from textual.strip import Strip
 from textual.widget import Widget
-from textual.widgets import ListItem, Static
+from textual.widgets import Input, ListItem, Static
 
+from .history import SearchHistory
 from .sources import Video, fmt_time
 
 # Vertical eighths, index 0 == empty.
@@ -143,6 +144,30 @@ class SeekBar(Static):
         text.append("┄" * max(0, track - done - 1), style="#5f564c")
         text.append(right, style="#8a7f70" if dur else "bold #ff5c2e")
         return text
+
+
+class SearchInput(Input):
+    """The search field, with a shell-style history on up/down."""
+
+    def __init__(self, history: SearchHistory, **kwargs):
+        super().__init__(**kwargs)
+        self.history = history
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "up":
+            recalled = self.history.previous(self.value)
+        elif event.key == "down":
+            recalled = self.history.next(self.value)
+        else:
+            await super()._on_key(event)
+            return
+
+        event.prevent_default()
+        event.stop()
+        if recalled is None:
+            return
+        self.value = recalled
+        self.cursor_position = len(recalled)
 
 
 class VideoItem(ListItem):
