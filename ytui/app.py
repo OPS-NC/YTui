@@ -11,9 +11,10 @@ from textual.css.query import NoMatches
 from textual.widgets import Footer, Input, ListView, Static
 
 from . import meminfo, sources
+from .history import SearchHistory
 from .player import Player
 from .sources import Video
-from .widgets import Clip, SeekBar, Spectrum, VideoItem
+from .widgets import Clip, SearchInput, SeekBar, Spectrum, VideoItem
 
 FPS = 20
 CLICK_WINDOW = 0.8      # seconds a click keeps authority over ListView.Selected
@@ -48,6 +49,7 @@ class YtuiApp(App):
                 self._status, f"URL refusée, nouvelle tentative {n}/{total}"
             ),
         )
+        self.history = SearchHistory()
         self.current: Video | None = None
         self.clip = False
         self._click_stamp: tuple[int, float, int] = (0, 0.0, 0)
@@ -58,8 +60,9 @@ class YtuiApp(App):
         with Horizontal(id="topbar"):
             yield Static("y t u i", id="brand")
             yield Static("TUNER · AUDIO SEUL", id="status")
-        yield Input(
-            placeholder="Rechercher, ou coller une URL / un ID de vidéo…",
+        yield SearchInput(
+            self.history,
+            placeholder="Rechercher, ou coller une URL / un ID de vidéo…  (↑ historique)",
             id="search",
         )
         with Horizontal(id="body"):
@@ -125,6 +128,7 @@ class YtuiApp(App):
         query = event.value.strip()
         if not query:
             return
+        self.history.add(query)
         video_id = sources.parse_video_id(query)
         if video_id:
             self._status("Lien reconnu, ouverture…")
