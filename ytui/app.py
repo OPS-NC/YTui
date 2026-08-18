@@ -53,6 +53,10 @@ class YtuiApp(App):
         )
         self.history = SearchHistory()
         self.current: Video | None = None
+        # File d'attente chargée depuis une playlist : tant qu'elle est là, la
+        # colonne « suite » ne se recharge plus toute seule.
+        self.queue: list[Video] = []
+        self.queue_index: int = -1
         self.deck_video = False     # image à la place du spectre dans la platine
         self.fullscreen = False
         self._click_stamp: tuple[int, float, int] = (0, 0.0, 0)
@@ -65,7 +69,7 @@ class YtuiApp(App):
             yield Static("TUNER · AUDIO SEUL", id="status")
         yield SearchInput(
             self.history,
-            placeholder="Rechercher, ou coller une URL / un ID de vidéo…  (↑ historique)",
+            placeholder="Rechercher, ou coller une URL / un ID de vidéo ou de playlist…  (↑ historique)",
             id="search",
         )
         with Horizontal(id="body"):
@@ -139,6 +143,11 @@ class YtuiApp(App):
         if not query:
             return
         self.history.add(query)
+        playlist_id = sources.parse_playlist_id(query)
+        if playlist_id:
+            self._status("Playlist reconnue, chargement…")
+            self.load_playlist(playlist_id, sources.parse_video_id(query))
+            return
         video_id = sources.parse_video_id(query)
         if video_id:
             self._status("Lien reconnu, ouverture…")
@@ -185,13 +194,67 @@ class YtuiApp(App):
                 return
             # Consume the double click so its second Selected is ignored.
             self._click_stamp = (target, when, 0)
+
+        # Une piste choisie dans la file garde la playlist ; un résultat de
+        # recherche la remplace par les suggestions automatiques.
+        if self.queue and event.list_view.id == "suggestions":
+            index = next((i for i, v in enumerate(self.queue)
+                          if v.id == item.video.id), None)
+            if index is not None:
+                self._play_queue_index(index)
+                return
         self.play_video(item.video)
 
     def note_click(self, item: VideoItem, chain: int) -> None:
         """Called by VideoItem: records which row was clicked, how many times."""
         self._click_stamp = (id(item), monotonic(), chain)
 
-    def play_video(self, video: Video) -> None:
+    # --------------------------------------------------------------- queue
+
+    @work(thread=True, exclusive=True, group="playlist")
+    def load_playlist(self, playlist_id: str, start_id: str | None = None) -> None:
+        try:
+            videos = sources.playlist(playlist_id)
+        except Exception as exc:
+            self.call_from_thread(self._notify_error, exc)
+            return
+        if not videos:
+            self.call_from_thread(self._status, "playlist vide")
+            return
+        start = 0
+        if start_id:
+            start = next((i for i, v in enumerate(videos) if v.id == start_id), 0)
+        self.call_from_thread(self._install_queue, videos, start)
+
+    def _install_queue(self, videos: list[Video], start: int) -> None:
+        self.queue = videos
+        self._fill("#suggestions", videos)
+        self.query_one("#suggestions", ListView).border_title = (
+            f"S U I T E   ·   playlist ({len(videos)})"
+        )
+        self._status(f"playlist : {len(videos)} pistes")
+        self._play_queue_index(start)
+
+    def _play_queue_index(self, index: int) -> None:
+        if not (0 <= index < len(self.queue)):
+            self._status("fin de la playlist")
+            return
+        self.queue_index = index
+        view = self.query_one("#suggestions", ListView)
+        if index < len(view.children):
+            view.index = index
+        self.play_video(self.queue[index], keep_queue=True)
+
+    def _clear_queue(self) -> None:
+        if not self.queue:
+            return
+        self.queue = []
+        self.queue_index = -1
+        self.query_one("#suggestions", ListView).border_title = "S U I T E   ·   auto"
+
+    def play_video(self, video: Video, keep_queue: bool = False) -> None:
+        if not keep_queue:
+            self._clear_queue()
         self.current = video
         if self.fullscreen:
             self._refresh_clip_title()
@@ -201,7 +264,8 @@ class YtuiApp(App):
         )
         # Une piste enchaînée garde l'image si elle est déjà affichée.
         self.start_stream(video, want_video=self.deck_video or self.fullscreen)
-        self.load_suggestions(video)
+        if not keep_queue:
+            self.load_suggestions(video)
 
     @work(thread=True, exclusive=True, group="stream")
     def start_stream(
@@ -254,6 +318,9 @@ class YtuiApp(App):
         self.action_next_track()
 
     def action_next_track(self) -> None:
+        if self.queue:
+            self._play_queue_index(self.queue_index + 1)
+            return
         view = self.query_one("#suggestions", ListView)
         for item in view.children:
             if isinstance(item, VideoItem):

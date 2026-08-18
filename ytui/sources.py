@@ -89,6 +89,47 @@ def parse_video_id(text: str) -> str | None:
     return None
 
 
+_PLAYLIST_PREFIXES = ("PL", "OL", "UU", "LL", "FL", "RD", "UL", "TL")
+
+
+def parse_playlist_id(text: str) -> str | None:
+    """Accept a bare playlist id or any URL carrying a `list=` parameter."""
+    text = text.strip()
+    if not text or " " in text:
+        return None
+
+    if text.startswith(_PLAYLIST_PREFIXES) and len(text) >= 12 \
+            and all(c in _ID_CHARS for c in text):
+        return text
+
+    if "://" not in text:
+        if not text.startswith(("youtube.com", "www.youtube.com", "youtu.be",
+                                "m.youtube.com", "music.youtube.com")):
+            return None
+        text = "https://" + text
+
+    parsed = urlparse(text)
+    host = parsed.netloc.lower().removeprefix("www.")
+    if host not in ("youtube.com", "m.youtube.com", "music.youtube.com",
+                    "youtube-nocookie.com", "youtu.be"):
+        return None
+    candidate = parse_qs(parsed.query).get("list", [""])[0]
+    if candidate and all(c in _ID_CHARS for c in candidate):
+        return candidate
+    return None
+
+
+def playlist(playlist_id: str, limit: int = 500) -> list[Video]:
+    """Flat listing of a playlist, in playlist order."""
+    # Auto-mix ids (RD…) are only served from a watch page, not from /playlist.
+    if playlist_id.startswith("RD"):
+        seed = playlist_id[2:]
+        url = f"https://www.youtube.com/watch?v={seed}&list={playlist_id}"
+    else:
+        url = f"https://www.youtube.com/playlist?list={playlist_id}"
+    return _flat(url, ["--playlist-end", str(limit)])
+
+
 def _ytdlp_cmd() -> list[str]:
     local = os.path.join(os.path.dirname(sys.executable), "yt-dlp")
     if os.path.exists(local):
