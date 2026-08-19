@@ -135,6 +135,14 @@ class YtuiApp(App):
             seek.duration = self.player.duration or 0.0
             seek.paused = self.player.paused
 
+    def _set_results_visible(self, visible: bool) -> None:
+        """Affiche la colonne de résultats uniquement pendant une recherche."""
+        try:
+            self.query_one("#left").display = visible
+        except NoMatches:
+            # A search/playback callback can race with screen teardown.
+            return
+
     # --------------------------------------------------------------- search
 
     @on(Input.Submitted, "#search")
@@ -145,14 +153,17 @@ class YtuiApp(App):
         self.history.add(query)
         playlist_id = sources.parse_playlist_id(query)
         if playlist_id:
+            self._set_results_visible(False)
             self._status("Playlist reconnue, chargement…")
             self.load_playlist(playlist_id, sources.parse_video_id(query))
             return
         video_id = sources.parse_video_id(query)
         if video_id:
+            self._set_results_visible(False)
             self._status("Lien reconnu, ouverture…")
             self.play_video(Video(id=video_id, title=f"youtube.com/watch?v={video_id}"))
             return
+        self._set_results_visible(True)
         self._status(f"Recherche « {query} »…")
         self.run_search(query)
 
@@ -253,6 +264,7 @@ class YtuiApp(App):
         self.query_one("#suggestions", ListView).border_title = "S U I T E   ·   auto"
 
     def play_video(self, video: Video, keep_queue: bool = False) -> None:
+        self._set_results_visible(False)
         if not keep_queue:
             self._clear_queue()
         self.current = video

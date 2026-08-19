@@ -48,6 +48,9 @@ brew install python ffmpeg
 | `Échap`            | Revenir à la platine                      |
 | `s` / `q`          | Arrêt / quitter                           |
 
+La colonne des résultats apparaît pendant une recherche et se masque lors de
+la lecture d'une vidéo précise ou d'une playlist.
+
 La platine affiche le clip à la place du spectre dès que le flux porte une
 piste vidéo ; sinon l'analyseur reste à l'écran. L'image est rendue en
 demi-blocs (`▀`, pixel du haut en couleur de texte, pixel du bas en fond),
