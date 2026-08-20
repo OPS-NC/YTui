@@ -47,6 +47,29 @@ NBANDS = 32
 FMIN, FMAX = 55.0, 7000.0
 
 
+def decode_thumbnail(video_id: str) -> bytes | None:
+    """One-shot ffmpeg decode of a video's default thumbnail into the same
+    VID_W x VID_H rgb24 grid the live clip uses, so the grid view (ThumbGrid)
+    reuses Clip's rendering table unchanged — a still frame instead of a
+    stream, same pixel format, same ffmpeg. `mqdefault.jpg` is the one
+    thumbnail size YouTube guarantees for every public video (320x180,
+    unlike `maxresdefault.jpg`), so ffmpeg fetches it directly as input; no
+    extra HTTP client, no PIL. Runs off the UI thread; None on any failure."""
+    url = f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"
+    cmd = [
+        "ffmpeg", "-nostdin", "-loglevel", "error", "-i", url,
+        "-frames:v", "1", "-vf", f"scale={VID_W}:{VID_H}",
+        "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1",
+    ]
+    try:
+        out = subprocess.run(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out if len(out) == VID_FRAME else None
+
+
 @lru_cache(maxsize=1)
 def _sink_available() -> bool:
     """An ffmpeg build without the sink muxer would fail ATTEMPTS times in a

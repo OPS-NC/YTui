@@ -12,12 +12,13 @@ from textual.widgets import Footer, Input, ListView, Static
 
 from . import meminfo, sources
 from .history import SearchHistory
-from .player import Player
+from .player import Player, decode_thumbnail
 from .sources import Video
-from .widgets import SearchInput, Clip, SeekBar, Spectrum, VideoItem
+from .widgets import SearchInput, Clip, SeekBar, Spectrum, ThumbGrid, VideoItem
 
 FPS = 20
 CLICK_WINDOW = 0.8      # seconds a click keeps authority over ListView.Selected
+THUMB_CACHE_MAX = 48    # decoded thumbnails kept across scroll positions, then dropped
 
 
 class YtuiApp(App):
@@ -36,6 +37,7 @@ class YtuiApp(App):
         ("minus", "volume_down", "Vol -"),
         ("v", "toggle_clip", "Vidéo"),
         ("V,shift+v", "toggle_fullscreen", "Plein écran"),
+        ("t", "toggle_thumbs", "Miniatures"),
         ("escape", "clip_small", "Réduire"),
         ("slash", "focus_search", "Recherche"),
         ("s", "stop", "Stop"),
@@ -59,6 +61,8 @@ class YtuiApp(App):
         self.queue_index: int = -1
         self.deck_video = False     # image à la place du spectre dans la platine
         self.fullscreen = False
+        self.thumbs_mode = False    # grille de miniatures à la place de la liste "suite"
+        self._thumb_cache: dict[str, bytes] = {}
         self._click_stamp: tuple[int, float, int] = (0, 0.0, 0)
 
     # ------------------------------------------------------------------ view
@@ -85,6 +89,7 @@ class YtuiApp(App):
                     yield Spectrum(self.player, id="spectrum")
                     yield SeekBar(id="seek")
                 yield ListView(id="suggestions")
+                yield ThumbGrid(id="thumb-grid")
         with Horizontal(id="bottom"):
             yield Footer()
             yield Static("", id="mem")
@@ -99,10 +104,12 @@ class YtuiApp(App):
         # Inline border titles: the panel frame doubles as its own label.
         self.query_one("#results", ListView).border_title = "R É S U L T A T S"
         self.query_one("#suggestions", ListView).border_title = "S U I T E   ·   auto"
+        self.query_one("#thumb-grid", ThumbGrid).border_title = "S U I T E   ·   miniatures"
         self.query_one("#deck", Vertical).border_title = "P L A T I N E"
         self.query_one("#search", Input).border_title = "R E C H E R C H E"
         self.query_one("#search", Input).focus()
         self.query_one("#clip-layer", Vertical).display = False
+        self.query_one("#thumb-grid", ThumbGrid).display = False
         self._apply_deck()
         self.set_interval(1 / FPS, self._tick)
         self.set_interval(1.0, self._tick_mem)
@@ -186,6 +193,26 @@ class YtuiApp(App):
             if videos:
                 view.focus()
                 view.index = 0
+        elif selector == "#suggestions":
+            self._mark_playing(view)
+
+    def _mark_playing(self, view: ListView | None = None) -> None:
+        """Flags the row matching `self.current` in the "suite" list, so the
+        currently playing track stays marked wherever the list cursor or the
+        mouse happens to be."""
+        if view is None:
+            try:
+                view = self.query_one("#suggestions", ListView)
+            except NoMatches:
+                return
+        current_id = self.current.id if self.current else None
+        for item in view.children:
+            if isinstance(item, VideoItem):
+                item.set_playing(item.video.id == current_id)
+        try:
+            self.query_one("#thumb-grid", ThumbGrid).set_playing(current_id)
+        except NoMatches:
+            pass
 
     # ------------------------------------------------------------- playback
 
@@ -257,17 +284,94 @@ class YtuiApp(App):
         self.play_video(self.queue[index], keep_queue=True)
 
     def _clear_queue(self) -> None:
+        if self.thumbs_mode:
+            self.thumbs_mode = False
+            self._apply_thumbs()
         if not self.queue:
             return
         self.queue = []
         self.queue_index = -1
         self.query_one("#suggestions", ListView).border_title = "S U I T E   ·   auto"
 
+    # ---------------------------------------------------------- miniatures
+
+    def action_toggle_thumbs(self) -> None:
+        """« t » : grille de miniatures des prochaines pistes à la place de
+        la liste texte. N'existe qu'en mode playlist — en mode auto il n'y a
+        pas de "prochaines pistes" stables à précharger."""
+        if not self.queue:
+            self.notify("Miniatures disponibles en mode playlist.",
+                        severity="warning", timeout=3)
+            return
+        self.thumbs_mode = not self.thumbs_mode
+        self._apply_thumbs()
+
+    def _apply_thumbs(self) -> None:
+        self.query_one("#suggestions", ListView).display = not self.thumbs_mode
+        grid = self.query_one("#thumb-grid", ThumbGrid)
+        grid.display = self.thumbs_mode
+        if self.thumbs_mode:
+            grid.focus()
+            # Set once — the grid never gets re-sliced as playback advances,
+            # so nothing shifts under the user while they're browsing it.
+            # Thumbnails themselves are requested lazily by the widget
+            # (`request_thumbs`) for whatever scrolls into view.
+            grid.set_videos(self.queue)
+            grid.scroll_to_index(max(0, self.queue_index))
+        else:
+            self._thumb_cache.clear()
+            grid.clear()
+
+    def request_thumbs(self, videos: list[Video]) -> None:
+        """Called by ThumbGrid when cells without a decoded frame scroll
+        into view. Anything already cached is pushed back immediately;
+        the rest goes to the decode worker."""
+        missing = []
+        for video in videos:
+            cached = self._thumb_cache.get(video.id)
+            if cached is not None:
+                self._push_thumb(video.id, cached)
+            else:
+                missing.append(video)
+        if missing:
+            self.fetch_thumbs(missing)
+
+    def _push_thumb(self, video_id: str, frame: bytes) -> None:
+        try:
+            self.query_one("#thumb-grid", ThumbGrid).set_frame(video_id, frame)
+        except NoMatches:
+            pass
+
+    @work(thread=True, exclusive=True, group="thumbs")
+    def fetch_thumbs(self, videos: list[Video]) -> None:
+        # One ffmpeg decode at a time: a thumbnail is a tiny JPEG so each is
+        # fast, and this avoids a burst of concurrent ffmpeg processes.
+        for video in videos:
+            frame = decode_thumbnail(video.id)
+            if frame is not None:
+                self.call_from_thread(self._thumb_ready, video.id, frame)
+
+    def _thumb_ready(self, video_id: str, frame: bytes) -> None:
+        if len(self._thumb_cache) >= THUMB_CACHE_MAX:
+            self._thumb_cache.clear()
+        self._thumb_cache[video_id] = frame
+        if self.thumbs_mode:
+            self._push_thumb(video_id, frame)
+
+    def play_from_thumb(self, video: Video) -> None:
+        """Callback wired by ThumbGrid on click/Entrée: same effect as
+        picking the track from the text "suite" list."""
+        index = next((i for i, v in enumerate(self.queue) if v.id == video.id), None)
+        if index is not None:
+            self._play_queue_index(index)
+
     def play_video(self, video: Video, keep_queue: bool = False) -> None:
-        self._set_results_visible(False)
+        # Results only hide on a pasted link/id (see `_submit`) — picking a
+        # track from the list itself must leave it exactly as it was.
         if not keep_queue:
             self._clear_queue()
         self.current = video
+        self._mark_playing()
         if self.fullscreen:
             self._refresh_clip_title()
         self.query_one("#now-title", Static).update(video.title)
@@ -323,8 +427,22 @@ class YtuiApp(App):
         try:
             videos = sources.related(video)
         except Exception:
+            videos = None
+        self.call_from_thread(self._suggestions_done, video, videos)
+
+    def _suggestions_done(self, video: Video, videos: list[Video] | None) -> None:
+        """`exclusive=True` cancels the next dispatch, not a subprocess
+        already blocking in another thread — so a slow fetch for a track the
+        user has since left can still land after a faster, newer one. Drop
+        anything that isn't for the track still playing."""
+        if self.current is not video:
             return
-        self.call_from_thread(self._fill, "#suggestions", videos)
+        if videos is None:
+            self._status("suggestions indisponibles")
+            return
+        self._fill("#suggestions", videos)
+        if not videos:
+            self._status("aucune suggestion pour cette piste")
 
     def _on_track_finished(self) -> None:
         self.action_next_track()

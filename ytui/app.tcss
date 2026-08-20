@@ -70,7 +70,7 @@ Screen {
     width: 1fr;
 }
 
-ListView, #deck {
+ListView, #deck, #thumb-grid {
     background: #191615;
     border: tall #6b4a1e;
     border-title-color: #6b6055;
@@ -81,10 +81,10 @@ ListView, #deck {
     scrollbar-color-hover: #e09b2a;
 }
 
-ListView {
+ListView, #thumb-grid {
     height: 1fr;
 }
-ListView:focus {
+ListView:focus, #thumb-grid:focus {
     border: tall #e09b2a;
     border-title-color: #f2b23c;
 }
@@ -105,6 +105,13 @@ ListView > ListItem.-highlight > Static.hl {
 }
 ListView > ListItem.-hovered {
     background: #221c18;
+}
+
+/* The track actually playing, independent of the cursor above: ember
+   instead of amber, and wins over both highlight and hover. */
+ListView > ListItem.-playing,
+ListView > ListItem.-playing > Static.playing {
+    background: #3d2015;
 }
 
 /* ------------------------------------------------------------------- deck */
