@@ -96,12 +96,17 @@ appui passe au navigateur suivant (`firefox`, `chrome`, `chromium`, `edge`,
 « pas connecté ». L'état actif reste affiché dans la barre du bas
 (`connecté (firefox)`) tant qu'il l'est.
 
+Raccourci pour un navigateur simple : `./ytui.sh --firefox` (ou `--chrome`,
+`--edge`, etc.) équivaut à positionner `YTUI_COOKIES_FROM_BROWSER` avant le
+lancement.
+
 Pour un profil ou un trousseau précis (`chrome:Profile 1`, `firefox+kwallet`),
 positionnez `YTUI_COOKIES_FROM_BROWSER` avant de lancer l'app — même syntaxe
 que l'option `--cookies-from-browser` de yt-dlp. C'est le point de départ du
 cycle de `L`, qui bascule ensuite sur les noms simples ci-dessus.
 
 ```
+./ytui.sh --firefox
 YTUI_COOKIES_FROM_BROWSER="chrome:Profile 1" ./ytui.sh
 ```
 

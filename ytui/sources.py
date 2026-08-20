@@ -170,6 +170,13 @@ def cookie_browser() -> str | None:
     return _cookie_browser
 
 
+def set_cookie_browser(value: str | None) -> None:
+    """Set at startup from a --<browser> CLI flag (see __main__.py) —
+    equivalent to YTUI_COOKIES_FROM_BROWSER but shorter to type."""
+    global _cookie_browser
+    _cookie_browser = value
+
+
 def cycle_cookie_browser() -> str | None:
     """Advances to the next browser in _COOKIE_BROWSERS (wrapping to "no
     cookies"). Called from the app's "L" binding — a deliberate, visible way
