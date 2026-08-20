@@ -151,23 +151,76 @@ def _js_runtime_args() -> tuple[str, ...]:
     return ()
 
 
+# Opt-in only: reading a browser's cookie jar on every search would be
+# surprising (a keychain prompt, a locked-database error while the browser is
+# open, extra latency) for the common case of public videos. Starts from
+# YTUI_COOKIES_FROM_BROWSER (same syntax as yt-dlp's --cookies-from-browser,
+# e.g. "firefox" or "chrome:Profile 1") so a profile/keyring suffix set before
+# launch survives; "L" in the app then cycles through the plain browser names
+# below without needing a restart.
+_COOKIE_BROWSERS = (
+    None, "firefox", "chrome", "chromium", "edge", "brave",
+    "opera", "vivaldi", "safari", "whale",
+)
+_cookie_browser: str | None = os.environ.get("YTUI_COOKIES_FROM_BROWSER", "").strip() or None
+
+
+def cookie_browser() -> str | None:
+    """Currently active --cookies-from-browser value, if any."""
+    return _cookie_browser
+
+
+def cycle_cookie_browser() -> str | None:
+    """Advances to the next browser in _COOKIE_BROWSERS (wrapping to "no
+    cookies"). Called from the app's "L" binding — a deliberate, visible way
+    to turn authentication on for age-gated or members-only videos, since
+    silently always sending cookies would be the surprising default."""
+    global _cookie_browser
+    index = _COOKIE_BROWSERS.index(_cookie_browser) if _cookie_browser in _COOKIE_BROWSERS else -1
+    _cookie_browser = _COOKIE_BROWSERS[(index + 1) % len(_COOKIE_BROWSERS)]
+    return _cookie_browser
+
+
+def _cookie_args() -> tuple[str, ...]:
+    return ("--cookies-from-browser", _cookie_browser) if _cookie_browser else ()
+
+
 def _explain(stderr: str) -> str:
-    """Turn yt-dlp's last stderr line into something actionable."""
+    """Turn yt-dlp's stderr into something actionable. "Requested format is
+    not available" is yt-dlp's generic message for an empty format list —
+    the actual reason (age gate, members-only, a signature/PO-token failure)
+    is usually a WARNING line printed just above it, so that's surfaced too
+    instead of only the last line, which alone is close to meaningless."""
     lines = [ln for ln in (stderr or "").strip().splitlines() if ln.strip()]
-    last = lines[-1] if lines else "yt-dlp a échoué"
+    if not lines:
+        return "yt-dlp a échoué"
     if "CERTIFICATE_VERIFY_FAILED" in stderr:
         return ("aucun certificat CA disponible pour Python — installez certifi "
                 "(.venv/bin/pip install certifi) ou lancez "
                 "« /Applications/Python 3.x/Install Certificates.command »")
+    last = lines[-1]
+    if last.startswith("ERROR:"):
+        warning = next((ln for ln in reversed(lines[:-1]) if "WARNING:" in ln), None)
+        if warning:
+            return f"{last} — {warning}"
     return last
 
 
-def _run(args: list[str]) -> tuple[str, str]:
+def _run(args: list[str], use_cookies: bool = True) -> tuple[str, str]:
     """Returns (stdout, stderr). yt-dlp often exits non-zero while still
-    printing usable JSON, so a failed return code alone is not an error."""
+    printing usable JSON, so a failed return code alone is not an error.
+
+    use_cookies=False is for the anonymous-friendly stream-resolution
+    strategies below: sending cookies on every request (not just the ones
+    that actually need them) made yt-dlp drop the Android client entirely
+    — it doesn't support cookie auth and gets skipped whenever cookies are
+    present — which broke playback for every video, not just gated ones.
+    Metadata listing (search/playlist/related/home feed) is unaffected by
+    that and still benefits from cookies unconditionally."""
+    cookie_args = _cookie_args() if use_cookies else ()
     proc = subprocess.run(
         _ytdlp_cmd() + ["--no-warnings", "--ignore-config",
-                        *_js_runtime_args(), *args],
+                        *_js_runtime_args(), *cookie_args, *args],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         timeout=TIMEOUT, text=True,
     )
@@ -210,6 +263,13 @@ def search(query: str, limit: int = 60) -> list[Video]:
     return _flat(f"ytsearch{limit}:{query}", [])
 
 
+def home_feed(limit: int = 60) -> list[Video]:
+    """The logged-in home page ("Recommandé pour vous"). Only meaningful
+    with a session — needs cookie_browser() to be set, same as any other
+    account-gated request in this module."""
+    return _flat("https://www.youtube.com/feed/recommended", ["--playlist-end", str(limit)])
+
+
 def related(video: Video, limit: int = 40) -> list[Video]:
     """Suggestions = the YouTube auto-mix (radio) built around the video."""
     mix = f"https://www.youtube.com/watch?v={video.id}&list=RD{video.id}"
@@ -223,6 +283,7 @@ class _Strategy:
     label: str
     extractor_args: tuple[str, ...]
     fmt: str
+    auth: bool = False   # only True for the strategy that needs cookies
 
 
 # YouTube only hands a plain https URL to the clients that need no PO token,
@@ -242,6 +303,17 @@ STRATEGIES = (
 VIDEO_STRATEGY = _Strategy("clip 360p",
                            ("--extractor-args", "youtube:player_client=android"),
                            "18/best[acodec!=none][vcodec!=none]")
+
+# Browser cookies authenticate the *web* client only: yt-dlp's mobile/embedded
+# client spoofs (android above, used specifically to dodge the PO-token
+# requirement for anonymous access) sign in through their own app-level flow
+# and simply ignore cookies — worse, yt-dlp skips them outright once cookies
+# are attached to the request at all, since they can't use them. So this is
+# a last-resort fallback, tried after the anonymous strategies above (which
+# stay cookie-free and keep working for public videos exactly as before),
+# only for whatever they couldn't resolve — i.e. actually gated content.
+AUTH_STRATEGY = _Strategy("connecté", ("--extractor-args", "youtube:player_client=web"),
+                          "bestaudio[abr<=160]/bestaudio/best", auth=True)
 
 _PRINT = "%(url)s\t%(duration)s\t%(title)s\t%(uploader)s\t%(vcodec)s\t%(http_headers)j"
 
@@ -279,7 +351,7 @@ def _resolve_with(video: Video, strategy: _Strategy) -> tuple[str, dict, str, bo
     out, err = _run([*strategy.extractor_args, "-f", strategy.fmt,
                      # The signed URL is only valid for the exact headers
                      # yt-dlp negotiated; without them googlevideo answers 403.
-                     "--print", _PRINT, video.url])
+                     "--print", _PRINT, video.url], use_cookies=strategy.auth)
     line = next((ln for ln in out.splitlines() if ln.startswith("http")), "")
     if not line:
         raise RuntimeError(_explain(err) if err.strip() else "flux audio introuvable")
@@ -314,6 +386,13 @@ def resolve_audio(video: Video, want_video: bool = False) -> Video:
              for i in sorted(range(len(STRATEGIES)), key=lambda i: i != _preferred)]
     if want_video:
         order.insert(0, VIDEO_STRATEGY)
+    if _cookie_browser:
+        # Appended, not tried first: these two stay cookie-free and already
+        # handle every public video on their own, exactly as before "L"
+        # existed. AUTH_STRATEGY only gets a turn for whatever they couldn't
+        # resolve — actually gated content — instead of adding cookies (and
+        # the Android-gets-skipped fallout) to every single lookup.
+        order.append(AUTH_STRATEGY)
     for strategy in order:
         try:
             url, headers, kind, has_video = _resolve_with(video, strategy)

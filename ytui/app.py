@@ -38,6 +38,7 @@ class YtuiApp(App):
         ("v", "toggle_clip", "Vidéo"),
         ("V,shift+v", "toggle_fullscreen", "Plein écran"),
         ("t", "toggle_thumbs", "Miniatures"),
+        ("L,shift+l", "cycle_login", "Connexion"),
         ("escape", "clip_small", "Réduire"),
         ("slash", "focus_search", "Recherche"),
         ("s", "stop", "Stop"),
@@ -114,6 +115,13 @@ class YtuiApp(App):
         self.set_interval(1 / FPS, self._tick)
         self.set_interval(1.0, self._tick_mem)
         self._tick_mem()
+        if sources.cookie_browser():
+            # Only when already authenticated at launch (YTUI_COOKIES_FROM_BROWSER) —
+            # "L" mid-session doesn't retrigger this, so it never clobbers whatever
+            # the user is doing by then.
+            self.query_one("#results", ListView).border_title = "S U G G E S T I O N S"
+            self._status("chargement des suggestions…")
+            self.load_home_feed()
 
     def _tick_mem(self) -> None:
         backend = self.player.backend if self.player.loaded else "idle"
@@ -121,8 +129,10 @@ class YtuiApp(App):
             widget = self.query_one("#mem", Static)
         except NoMatches:
             return
+        browser = sources.cookie_browser()
+        login = f"   ·   connecté ({browser})" if browser else ""
         widget.update(
-            f"audio: {backend}   ·   RAM {meminfo.human(meminfo.total_rss())}"
+            f"audio: {backend}   ·   RAM {meminfo.human(meminfo.total_rss())}{login}"
         )
 
     def _tick(self) -> None:
@@ -171,8 +181,22 @@ class YtuiApp(App):
             self.play_video(Video(id=video_id, title=f"youtube.com/watch?v={video_id}"))
             return
         self._set_results_visible(True)
+        self.query_one("#results", ListView).border_title = "R É S U L T A T S"
         self._status(f"Recherche « {query} »…")
         self.run_search(query)
+
+    @work(thread=True, exclusive=True, group="search")
+    def load_home_feed(self) -> None:
+        try:
+            videos = sources.home_feed()
+        except Exception as exc:
+            self.call_from_thread(self._notify_error, exc)
+            return
+        self.call_from_thread(self._home_feed_done, videos)
+
+    def _home_feed_done(self, videos: list[Video]) -> None:
+        self._fill("#results", videos)
+        self._status(f"{len(videos)} suggestions" if videos else "aucune suggestion")
 
     @work(thread=True, exclusive=True, group="search")
     def run_search(self, query: str) -> None:
@@ -555,6 +579,20 @@ class YtuiApp(App):
 
     def action_focus_search(self) -> None:
         self.query_one("#search", Input).focus()
+
+    def action_cycle_login(self) -> None:
+        """« L » : cycle explicitement entre "pas connecté" et les
+        navigateurs pris en charge par yt-dlp pour l'authentification par
+        cookies (vidéos limitées par âge, réservées aux membres, etc.). Pas
+        d'automatisme au démarrage — c'est une action délibérée, visible
+        dans la barre du bas tant qu'elle est active."""
+        browser = sources.cycle_cookie_browser()
+        self._status(f"connexion : {browser}" if browser else "déconnecté")
+        self.notify(
+            f"Authentification via les cookies de {browser}" if browser
+            else "Authentification désactivée",
+            timeout=3,
+        )
 
     # ----------------------------------------------------------------- misc
 

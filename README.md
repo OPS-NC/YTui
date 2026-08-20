@@ -44,6 +44,7 @@ brew install python ffmpeg
 | `n`                | Piste suivante                            |
 | `+` `-`            | Volume                                    |
 | `t`                | Grille de miniatures (mode playlist)      |
+| `L`                | Connexion (cookies d'un navigateur)       |
 | clic sur l'image   | Clip en plein écran                       |
 | `v`                | Idem au clavier                           |
 | `Échap`            | Revenir à la platine                      |
@@ -82,3 +83,34 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m ytui
 ```
+
+## Authentification
+
+Par défaut ytui ne s'authentifie pas — les vidéos publiques n'en ont pas
+besoin, et lire les cookies d'un navigateur à chaque recherche serait
+surprenant (invite du trousseau, base verrouillée si le navigateur est
+ouvert, latence en plus). Pour les vidéos limitées par âge, réservées aux
+membres ou autrement liées à un compte, appuyez sur `L` dans l'app : chaque
+appui passe au navigateur suivant (`firefox`, `chrome`, `chromium`, `edge`,
+`brave`, `opera`, `vivaldi`, `safari`, `whale`), et un dernier appui revient à
+« pas connecté ». L'état actif reste affiché dans la barre du bas
+(`connecté (firefox)`) tant qu'il l'est.
+
+Pour un profil ou un trousseau précis (`chrome:Profile 1`, `firefox+kwallet`),
+positionnez `YTUI_COOKIES_FROM_BROWSER` avant de lancer l'app — même syntaxe
+que l'option `--cookies-from-browser` de yt-dlp. C'est le point de départ du
+cycle de `L`, qui bascule ensuite sur les noms simples ci-dessus.
+
+```
+YTUI_COOKIES_FROM_BROWSER="chrome:Profile 1" ./ytui.sh
+```
+
+ytui lit alors les cookies comme le ferait le navigateur, pour toutes les
+requêtes yt-dlp (recherche, playlist, suggestions, résolution du flux).
+
+Si `YTUI_COOKIES_FROM_BROWSER` est déjà positionné au lancement, la colonne
+des résultats affiche directement la page d'accueil YouTube (« Recommandé
+pour vous ») au lieu de rester vide en attendant une recherche. Lancer une
+vraie recherche remplace ces suggestions normalement ; se connecter en cours
+de session avec `L` ne les recharge pas — c'est uniquement le comportement au
+démarrage.
