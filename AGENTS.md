@@ -102,6 +102,10 @@ convenience.
   system's is loaded at run time). `bundle/` and `dist/` are not committed.
 - The embedded ffmpeg is preferred over the system's (lighter resident); the
   system's is the fallback when the embedded one doesn't start.
+- ffmpeg 9 verifies TLS by default and the Linux bundle's mbedTLS has no
+  trust store: every https input of the embedded Linux ffmpeg must carry
+  `tools::ffmpeg_tls_args()` (`-ca_file` of the system bundle). Local-file
+  tests can't catch this; `cargo test -- --ignored ffmpeg_https` does.
 - yt-dlp is never embedded: `tools::maintain_ytdlp` installs it under
   `~/.local/share/ytui/bin/yt-dlp/` (zipapp if python ≥ 3.10 on Linux, else
   the *onedir* zip — the onefile builds unpack on every call), checks the

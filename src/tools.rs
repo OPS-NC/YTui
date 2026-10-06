@@ -97,6 +97,38 @@ pub fn ffmpeg() -> &'static Path {
     })
 }
 
+/// Options to put before every https `-i` of the ffmpeg above.
+///
+/// ffmpeg 9 verifies TLS peers by default. The macOS bundle (SecureTransport)
+/// and distribution builds (OpenSSL/GnuTLS) find the system's trust store on
+/// their own; the Linux bundle's static mbedTLS has none and needs the CA
+/// file spelled out — without it every https input fails with "Input/output
+/// error". The file's location differs per distribution. With no bundle at
+/// all, verification is turned off rather than making playback impossible:
+/// the URLs come signed from yt-dlp, which fetched them over verified TLS.
+pub fn ffmpeg_tls_args() -> &'static [String] {
+    static ARGS: OnceLock<Vec<String>> = OnceLock::new();
+    ARGS.get_or_init(|| {
+        let embedded = data_dir().is_some_and(|d| ffmpeg().starts_with(d));
+        if !cfg!(target_os = "linux") || !embedded {
+            return Vec::new();
+        }
+        let from_env = std::env::var_os("SSL_CERT_FILE").map(PathBuf::from);
+        let known = [
+            "/etc/ssl/certs/ca-certificates.crt",                // Debian, Ubuntu, Arch, Gentoo
+            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // Fedora, RHEL
+            "/etc/pki/tls/certs/ca-bundle.crt",                  // older RHEL
+            "/etc/ssl/ca-bundle.pem",                            // openSUSE
+            "/etc/ssl/cert.pem",                                 // Alpine, Void
+        ];
+        let found = from_env.into_iter().chain(known.iter().map(PathBuf::from)).find(|p| p.is_file());
+        match found {
+            Some(ca) => vec!["-ca_file".into(), ca.to_string_lossy().into_owned()],
+            None => vec!["-tls_verify".into(), "0".into()],
+        }
+    })
+}
+
 pub fn ffmpeg_available() -> bool {
     let path = ffmpeg();
     path.is_absolute() && path.is_file()
@@ -390,6 +422,23 @@ mod tests {
         let before = std::fs::metadata(&qjs).unwrap().modified().unwrap();
         extract("qjs", embedded::QJS).unwrap();
         assert_eq!(before, std::fs::metadata(&qjs).unwrap().modified().unwrap());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Network (not YouTube): https input through the ffmpeg ytui picked,
+    /// with its TLS options. `cargo test -- --ignored ffmpeg_https`.
+    #[test]
+    #[ignore]
+    fn ffmpeg_https() {
+        let dir = scratch("https");
+        let mut cmd = Command::new(ffmpeg());
+        cmd.args(["-nostdin", "-loglevel", "error"])
+            .args(ffmpeg_tls_args())
+            .args(["-i", "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg"])
+            .args(["-t", "1", "-ac", "1", "-f", "s16le", "pipe:1"]);
+        let out = exec::run(cmd, Duration::from_secs(30)).unwrap();
+        println!("{} {:?}: {}", ffmpeg().display(), ffmpeg_tls_args(), String::from_utf8_lossy(&out.stderr));
+        assert!(!out.stdout.is_empty(), "no audio over https");
         let _ = std::fs::remove_dir_all(dir);
     }
 

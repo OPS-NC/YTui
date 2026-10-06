@@ -74,7 +74,9 @@ pub enum PlayerEvent {
 /// neighbour), a thumbnail costs ~1 kB resident instead of a 170 kB frame.
 pub fn decode_thumbnail(video_id: &str, w: usize, h: usize) -> Option<Vec<u8>> {
     let mut cmd = Command::new(tools::ffmpeg());
-    cmd.args(["-nostdin", "-loglevel", "error", "-i"])
+    cmd.args(["-nostdin", "-loglevel", "error"])
+        .args(tools::ffmpeg_tls_args())
+        .arg("-i")
         .arg(format!("https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"))
         .args(["-frames:v", "1", "-vf"])
         .arg(format!("scale={w}:{h}:flags=area"))
@@ -312,6 +314,7 @@ impl Player {
         if !video {
             cmd.arg("-vn");
         }
+        cmd.args(tools::ffmpeg_tls_args());
         cmd.args(["-i", url, "-sn", "-dn"]);
         // 1. the audible output; the OS sink paces the whole graph
         cmd.args(["-map", "0:a:0", "-af", &vol]);
