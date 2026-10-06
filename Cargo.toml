@@ -1,0 +1,24 @@
+[package]
+name = "ytui"
+version = "0.2.0"
+edition = "2024"
+description = "Client YouTube en TUI, audio seul, frugal en RAM"
+license = "MIT"
+
+# The whole dependency budget. ratatui is used only for its cell buffer and
+# diffing terminal backend (no widget crate, no layout solver): every widget
+# here paints straight into the buffer. libc gives SIGSTOP/SIGCONT, the extra
+# pipe for the video tap and the macOS process RSS calls.
+[dependencies]
+crossterm = { version = "0.29", default-features = false, features = ["bracketed-paste", "events"] }
+libc = "0.2"
+ratatui-core = { version = "0.1", default-features = false, features = ["std"] }
+ratatui-crossterm = { version = "0.1", default-features = false, features = ["crossterm_0_29"] }
+unicode-width = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

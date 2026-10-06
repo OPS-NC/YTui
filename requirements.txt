@@ -1,5 +1,0 @@
-textual>=1.0
-yt-dlp>=2024.10.7
-# macOS: the python.org build ships no CA bundle, and yt-dlp picks certifi up
-# automatically. Harmless everywhere else.
-certifi

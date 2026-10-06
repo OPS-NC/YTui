@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Launcher: creates the venv on first run, then starts the TUI.
+# Launcher: builds the release binary when the sources changed (a no-op
+# otherwise), then starts the TUI. Flags are passed through (--firefox…).
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [ ! -x .venv/bin/python ]; then
-    echo "Première exécution : création de l'environnement…"
-    python3 -m venv .venv
-    .venv/bin/pip install --quiet --upgrade pip
-    .venv/bin/pip install --quiet -r requirements.txt
+if command -v cargo >/dev/null 2>&1; then
+    if [ ! -x target/release/ytui ]; then
+        echo "Première exécution : compilation…"
+    fi
+    cargo build --release --quiet
+elif [ ! -x target/release/ytui ]; then
+    echo "cargo introuvable — installez Rust : https://rustup.rs" >&2
+    exit 1
 fi
 
-exec .venv/bin/python -m ytui "$@"
+exec target/release/ytui "$@"
