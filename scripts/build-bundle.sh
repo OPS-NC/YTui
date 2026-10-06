@@ -5,6 +5,7 @@
 # system's ffmpeg / JS runtime as before.
 #
 #   scripts/build-bundle.sh aarch64-apple-darwin
+#   scripts/build-bundle.sh x86_64-apple-darwin     (cross-built from arm64 too)
 #   scripts/build-bundle.sh x86_64-unknown-linux-musl
 #   scripts/build-bundle.sh aarch64-unknown-linux-musl
 #
@@ -43,7 +44,8 @@ fetch() { # url dest-dir
 }
 
 case $TARGET in
-    aarch64-apple-darwin) OS=macos; ARCH=aarch64 ;;
+    aarch64-apple-darwin) OS=macos; ARCH=aarch64; MAC_ARCH=arm64 ;;
+    x86_64-apple-darwin) OS=macos; ARCH=x86_64; MAC_ARCH=x86_64 ;;
     x86_64-unknown-linux-musl) OS=linux; ARCH=x86_64 ;;
     aarch64-unknown-linux-musl) OS=linux; ARCH=aarch64 ;;
     *) echo "cible non prise en charge : $TARGET" >&2; exit 1 ;;
@@ -70,6 +72,9 @@ build_qjs() {
     fetch "https://github.com/quickjs-ng/quickjs/archive/refs/tags/v$QJS_V.tar.gz" "quickjs-$QJS_V"
     local b=$WORK/qjs
     local args=(-S "$SRC/quickjs-$QJS_V" -B "$b" -DCMAKE_BUILD_TYPE=MinSizeRel -DBUILD_SHARED_LIBS=OFF)
+    if [ "$OS" = macos ]; then
+        args+=(-DCMAKE_OSX_ARCHITECTURES="$MAC_ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
+    fi
     if [ "$OS" = linux ]; then
         export ZIG_TARGET=$MUSL_TARGET
         args+=(-DCMAKE_C_COMPILER="$TC/cc" -DCMAKE_AR="$TC/ar" -DCMAKE_RANLIB="$TC/ranlib"
@@ -151,7 +156,10 @@ build_ffmpeg() {
     local extra=()
     if [ "$OS" = macos ]; then
         extra=(--enable-securetransport --enable-audiotoolbox --enable-outdev=audiotoolbox
+               --arch="$ARCH" --cc="clang -arch $MAC_ARCH"
                --extra-cflags=-mmacosx-version-min=12.0 --extra-ldflags=-mmacosx-version-min=12.0)
+        # Intel binaries are cross-built on Apple Silicon (no Intel runners).
+        [ "$(uname -m)" = "$MAC_ARCH" ] || extra+=(--enable-cross-compile --target-os=darwin)
     else
         build_mbedtls
         build_pulse_stub

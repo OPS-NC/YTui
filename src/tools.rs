@@ -79,6 +79,7 @@ fn release(bytes: &'static [u8]) {
     }
 }
 
+#[cfg(bundled)]
 fn starts(path: &Path) -> bool {
     let mut cmd = Command::new(path);
     cmd.arg("-version");

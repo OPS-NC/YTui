@@ -14,11 +14,15 @@ de tout l'arbre de processus est affichée dans la barre du bas.
 
 ## Binaire autonome
 
-Les binaires de `dist/` embarquent tout ce qu'il faut :
+Téléchargement : page **Releases** du dépôt GitHub (`OPS-NC/YTui`), avec
+leurs empreintes dans `SHA256SUMS`. Ces binaires — produits par la GitHub
+Action `build` à chaque tag `v*`, ou localement par `scripts/dist.sh` dans
+`dist/` — embarquent tout ce qu'il faut :
 
 | Fichier               | Pour                                   |
 |-----------------------|----------------------------------------|
 | `ytui-macos-arm64`    | Mac Apple Silicon (M1 à M4)            |
+| `ytui-macos-x86_64`   | Mac Intel                              |
 | `ytui-linux-x86_64`   | Linux PC (Intel / AMD)                 |
 | `ytui-linux-aarch64`  | Linux ARM (Raspberry Pi 4/5, serveurs) |
 
@@ -76,6 +80,9 @@ Binaires autonomes :
 brew install nasm pkg-config cmake zig
 cargo install --locked cargo-zigbuild
 scripts/dist.sh          # compile ffmpeg + qjs une fois (bundle/), puis dist/
+
+Publier une version : `git tag vX.Y && git push origin vX.Y` — la GitHub
+Action compile les quatre binaires, les teste et crée la release.
 ```
 
 `scripts/build-bundle.sh <cible>` ne reconstruit que ffmpeg et qjs pour une

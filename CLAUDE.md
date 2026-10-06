@@ -37,6 +37,7 @@ PulseAudio/PipeWire + glibc ≥ 2.17. Without `bundle/`, the system's ffmpeg / J
 ```
 cargo test -- --ignored   # managed yt-dlp install (downloads from GitHub, not YouTube)
 scripts/dist.sh           # needs nasm, pkg-config, cmake, zig, cargo-zigbuild
+git tag vX.Y && git push origin vX.Y   # .github/workflows/build.yml builds, tests and releases
 ```
 
 Crates (the whole budget — AGENTS.md rule 5): `crossterm`, `ratatui-core`, `ratatui-crossterm`, `libc`,

@@ -1,0 +1,137 @@
+# Builds the self-contained binaries (ffmpeg + qjs embedded) for macOS and
+# Linux on both architectures, smoke-tests them, and publishes them as a
+# GitHub release when a `v*` tag is pushed.
+#
+# The minimal ffmpeg/qjs builds (scripts/build-bundle.sh) are cached per
+# target and only rebuilt when that script changes. Intel macOS is
+# cross-built on Apple Silicon (GitHub has no Intel macOS runners left) and
+# tested through Rosetta; Linux is cross-built with zig from x86_64 and
+# tested in Debian containers (arm64 through QEMU).
+name: build
+
+on:
+  push:
+    branches: [main, rewrite/rust]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  ZIG_VERSION: 0.17.0
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-15, name: ytui-macos-arm64 }
+          - { target: x86_64-apple-darwin, os: macos-15, name: ytui-macos-x86_64 }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-24.04, name: ytui-linux-x86_64, platform: linux/amd64 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-24.04, name: ytui-linux-aarch64, platform: linux/arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install nasm pkg-config cmake || true
+
+      - name: Build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq nasm pkg-config cmake
+
+      - uses: mlugg/setup-zig@v2
+        if: runner.os == 'Linux'
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - uses: taiki-e/install-action@v2
+        if: runner.os == 'Linux'
+        with:
+          tool: cargo-zigbuild
+
+      - name: Cache ffmpeg + qjs
+        uses: actions/cache@v4
+        with:
+          path: bundle/${{ matrix.target }}
+          key: bundle-${{ matrix.target }}-${{ hashFiles('scripts/build-bundle.sh') }}
+
+      - name: Build ffmpeg + qjs
+        run: |
+          if [ ! -f bundle/${{ matrix.target }}/ffmpeg ] || [ ! -f bundle/${{ matrix.target }}/qjs ]; then
+            scripts/build-bundle.sh ${{ matrix.target }}
+          fi
+
+      - name: Build ytui
+        run: scripts/dist.sh ${{ matrix.target }}
+
+      # The embedded tools extract and start, and https works through the
+      # embedded ffmpeg (a Wikimedia file — CI never touches YouTube).
+      - name: Smoke test (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          prefix=""
+          [ "${{ matrix.target }}" = x86_64-apple-darwin ] && prefix="arch -x86_64"
+          cargo test --release --target ${{ matrix.target }} --no-run
+          bin=$(ls -t target/${{ matrix.target }}/release/deps/ytui-* | grep -v '\.d$' | head -1)
+          $prefix "$bin" embedded
+          $prefix "$bin" ffmpeg_https --ignored --nocapture
+
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.platform == 'linux/arm64'
+
+      - name: Smoke test (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo zigbuild --release --tests --target ${{ matrix.target }}
+          bin=$(ls -t target/${{ matrix.target }}/release/deps/ytui-* | grep -v '\.d$' | head -1)
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD/$bin:/t:ro" debian:bookworm-slim sh -ec '
+            apt-get update -qq >/dev/null && apt-get install -y -qq libpulse0 ca-certificates >/dev/null
+            /t embedded
+            /t ffmpeg_https --ignored --nocapture'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.name }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && chmod +x ytui-* && sha256sum ytui-* > SHA256SUMS && cat SHA256SUMS
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "ytui $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md \
+            --verify-tag
