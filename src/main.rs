@@ -11,6 +11,7 @@ mod meminfo;
 mod player;
 mod sources;
 mod theme;
+mod tools;
 mod widgets;
 
 use std::io::{self, Write};

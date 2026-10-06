@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::exec;
 use crate::sources::Headers;
+use crate::{exec, tools};
 
 const VIS_RATE: f64 = 16000.0; // analyser feed: 32 kB/s, negligible
 // macOS has no PulseAudio; ffmpeg talks to CoreAudio through audiotoolbox,
@@ -73,7 +73,7 @@ pub enum PlayerEvent {
 /// since ffmpeg does the scaling (area filter: better looking than nearest
 /// neighbour), a thumbnail costs ~1 kB resident instead of a 170 kB frame.
 pub fn decode_thumbnail(video_id: &str, w: usize, h: usize) -> Option<Vec<u8>> {
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = Command::new(tools::ffmpeg());
     cmd.args(["-nostdin", "-loglevel", "error", "-i"])
         .arg(format!("https://i.ytimg.com/vi/{video_id}/mqdefault.jpg"))
         .args(["-frames:v", "1", "-vf"])
@@ -88,7 +88,7 @@ pub fn decode_thumbnail(video_id: &str, w: usize, h: usize) -> Option<Vec<u8>> {
 fn sink_available() -> bool {
     static OK: OnceLock<bool> = OnceLock::new();
     *OK.get_or_init(|| {
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = Command::new(tools::ffmpeg());
         cmd.args(["-hide_banner", "-muxers"]);
         let Ok(out) = exec::run(cmd, Duration::from_secs(10)) else {
             return true; // undecidable: let the normal error path speak
@@ -226,7 +226,7 @@ impl Player {
         start: f64,
         refresh_first: bool,
     ) -> Result<(), String> {
-        if exec::which("ffmpeg").is_none() {
+        if !tools::ffmpeg_available() {
             return Err("ffmpeg introuvable dans le PATH".into());
         }
         if !sink_available() {
@@ -292,7 +292,7 @@ impl Player {
             (ctl.volume, ctl.video)
         };
         let vol = format!("volume={volume:.3}");
-        let mut cmd = Command::new("ffmpeg");
+        let mut cmd = Command::new(tools::ffmpeg());
         cmd.args(["-nostdin", "-loglevel", "error"]);
         cmd.args(["-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]);
         if let Some((_, ua)) = headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("user-agent")) {

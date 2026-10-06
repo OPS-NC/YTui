@@ -10,11 +10,7 @@ const MAX_ENTRIES: usize = 200;
 
 /// ~/.local/share/ytui/search_history (XDG_DATA_HOME honoured).
 fn history_path() -> Option<PathBuf> {
-    let root = match std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty()) {
-        Some(base) => PathBuf::from(base),
-        None => PathBuf::from(std::env::var_os("HOME")?).join(".local/share"),
-    };
-    Some(root.join("ytui").join("search_history"))
+    Some(crate::tools::data_dir()?.join("search_history"))
 }
 
 /// The list plus a cursor into it, as a shell prompt sees its history.

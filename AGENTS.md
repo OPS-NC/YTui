@@ -16,7 +16,8 @@ terminal backend.
 Concretely, when weighing a change:
 
 - Memory that can be given back to the OS must be given back — hence yt-dlp
-  and curl as throw-away subprocesses, never linked in.
+  and curl as throw-away subprocesses, never linked in, and the embedded
+  ffmpeg/qjs bytes `madvise`d away once extracted.
 - No decoding work that nobody looks at: audio-only by default, the video track
   is decoded only when asked for (`v` / `V`).
 - No polling or redrawing beyond what the eye needs. The main loop sleeps on a
@@ -54,8 +55,12 @@ state; workers report back over an `mpsc` channel.
 | `src/sources.rs` | yt-dlp calls: search, related, playlist, home feed, URL/ID parsing, stream resolution, curl probe |
 | `src/player.rs` | `Player` — one ffmpeg process: sink output + PCM tap + optional RGB video tap; `Analyser` (Goertzel) |
 | `src/exec.rs` | subprocess with timeout, `which`, small-stack worker spawn |
+| `src/tools.rs` | where ffmpeg / JS runtime / yt-dlp come from: embedded-tool extraction, managed yt-dlp install + daily update |
 | `src/history.rs` | persisted search history (↑/↓ in the search field) |
 | `src/meminfo.rs` | RSS of the process tree (`/proc` on Linux, libproc on macOS) |
+| `build.rs` | embeds `bundle/<target>/{ffmpeg,qjs}` when present (`cfg(bundled)`) |
+| `scripts/build-bundle.sh` | builds the minimal ffmpeg + qjs for one target into `bundle/` |
+| `scripts/dist.sh` | self-contained binaries for macOS arm64 / Linux x86_64 / aarch64 into `dist/` |
 | `ytui.sh` | launcher; builds the release binary when needed |
 
 ## Hard rules
@@ -73,7 +78,10 @@ convenience.
    that memory must go back to the OS. Same for the 8 kB stream probe: a curl
    subprocess, not a TLS stack linked into the TUI. Listings are read as one
    `--print` line per entry, not a JSON dump. See the top of `sources.rs`.
-3. **One ffmpeg process** for playback. Audio sink, analyser PCM (stdout) and
+3. **One ffmpeg process** for playback. The embedded ffmpeg is configured
+   with `--disable-everything` plus exactly what ytui runs (see
+   `build-bundle.sh`); enabling a component means justifying its size, and
+   it must stay LGPL (no `--enable-gpl`). Audio sink, analyser PCM (stdout) and
    video frames (fd 3) all come out of the same process. Don't add a second
    ffmpeg, PortAudio, cpal, an FFT crate or an image crate. (Thumbnails are
    separate one-shot ffmpeg decodes, sequential, only for what is on screen.)
@@ -85,6 +93,23 @@ convenience.
 6. Blocking work (yt-dlp, network, ffmpeg start-up) goes in an `exec::spawn`
    worker and comes back as a `Msg` carrying the token of its request group;
    stale replies are dropped. Never block the main loop.
+
+## Bundled tools
+
+- ffmpeg and quickjs-ng are compiled by `scripts/build-bundle.sh` (macOS
+  native with SecureTransport + AudioToolbox; Linux with zig against glibc
+  2.17, static mbedTLS, and a link-time stub of `libpulse.so.0` — the
+  system's is loaded at run time). `bundle/` and `dist/` are not committed.
+- The embedded ffmpeg is preferred over the system's (lighter resident); the
+  system's is the fallback when the embedded one doesn't start.
+- yt-dlp is never embedded: `tools::maintain_ytdlp` installs it under
+  `~/.local/share/ytui/bin/yt-dlp/` (zipapp if python ≥ 3.10 on Linux, else
+  the *onedir* zip — the onefile builds unpack on every call), checks the
+  latest release at most once a day, verifies SHA2-256SUMS, swaps directories
+  atomically. `YTUI_YTDLP` pins another one and disables this.
+- Testing those needs no YouTube: `cargo test` extracts and starts the
+  embedded tools; `cargo test -- --ignored` installs yt-dlp from GitHub into
+  a temp dir. Linux builds can be checked in a `debian` container.
 
 ## Conventions
 

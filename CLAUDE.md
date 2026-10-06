@@ -29,8 +29,15 @@ cargo clippy            # must stay warning-free
 ./ytui.sh               # builds if needed, then runs (user only — agents don't run the app)
 ```
 
-Toolchain: stable Rust, edition 2024. Runtime dependencies (not crates): `ffmpeg`, `yt-dlp`, `curl`,
-optionally a JS runtime for yt-dlp (`deno`/`node`/`bun`/`quickjs`), PulseAudio on Linux.
+Toolchain: stable Rust, edition 2024. The distributed binaries embed a minimal ffmpeg and quickjs-ng
+(`scripts/build-bundle.sh <target>` → `bundle/`, embedded by `build.rs`; `scripts/dist.sh` → `dist/`) and
+install/update yt-dlp themselves (`src/tools.rs`). Still required on the system: `curl`, and on Linux
+PulseAudio/PipeWire + glibc ≥ 2.17. Without `bundle/`, the system's ffmpeg / JS runtime are used.
+
+```
+cargo test -- --ignored   # managed yt-dlp install (downloads from GitHub, not YouTube)
+scripts/dist.sh           # needs nasm, pkg-config, cmake, zig, cargo-zigbuild
+```
 
 Crates (the whole budget — AGENTS.md rule 5): `crossterm`, `ratatui-core`, `ratatui-crossterm`, `libc`,
 `unicode-width`, all with default features off where possible.
@@ -50,6 +57,8 @@ only while something animates, else once a second (RAM readout), and redraws onl
 | `src/sources.rs` | yt-dlp calls (search, related, playlist, home feed), URL/ID parsing, stream resolution, curl probe |
 | `src/player.rs` | `Player` — one ffmpeg: sink + 16 kHz PCM tap + optional 320x180 RGB tap; `Analyser` (Goertzel) |
 | `src/exec.rs` | subprocess with timeout, `which`, small-stack thread spawn |
+| `src/tools.rs` | embedded ffmpeg/qjs extraction, JS runtime choice, managed yt-dlp (install + daily update) |
+| `build.rs` | embeds `bundle/<target>/{ffmpeg,qjs}` when present (`cfg(bundled)`) |
 | `src/history.rs` | persisted search history (↑/↓ in the search field) |
 | `src/meminfo.rs` | RSS of the process tree (`/proc` on Linux, libproc on macOS) |
 

@@ -9,11 +9,10 @@
 
 use std::process::Command;
 use std::sync::Mutex;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::exec;
+use crate::{exec, tools};
 
 const TIMEOUT: Duration = Duration::from_secs(90);
 const PROBE_BYTES: usize = 8192;
@@ -171,30 +170,6 @@ pub fn parse_playlist_id(text: &str) -> Option<String> {
 
 // ------------------------------------------------------------------ yt-dlp
 
-fn ytdlp_cmd() -> Command {
-    // A yt-dlp shipped next to the binary wins, then PATH, then the module.
-    let local = std::env::current_exe()
-        .ok()
-        .and_then(|exe| Some(exe.parent()?.join("yt-dlp")))
-        .filter(|p| p.is_file());
-    if let Some(path) = local.or_else(|| exec::which("yt-dlp")) {
-        return Command::new(path);
-    }
-    let mut cmd = Command::new("python3");
-    cmd.args(["-m", "yt_dlp"]);
-    cmd
-}
-
-/// yt-dlp needs a JS engine to solve YouTube's signature challenges and only
-/// auto-enables deno. Any of these will do, so whatever is installed is
-/// declared — extraction without one is deprecated upstream.
-pub fn js_runtime() -> Option<&'static str> {
-    static FOUND: OnceLock<Option<&'static str>> = OnceLock::new();
-    *FOUND.get_or_init(|| {
-        ["deno", "node", "bun", "quickjs"].into_iter().find(|r| exec::which(r).is_some())
-    })
-}
-
 // Opt-in only: reading a browser's cookie jar on every search would be
 // surprising (a keychain prompt, a locked-database error while the browser is
 // open, extra latency) for the common case of public videos. Starts from
@@ -283,9 +258,9 @@ fn explain(stderr: &str) -> String {
 /// listing (search/playlist/related/home feed) is unaffected by that and
 /// still benefits from cookies unconditionally.
 fn run(args: &[&str], use_cookies: bool) -> Result<(String, String), String> {
-    let mut cmd = ytdlp_cmd();
+    let mut cmd = tools::ytdlp_cmd();
     cmd.args(["--no-warnings", "--ignore-config"]);
-    if let Some(rt) = js_runtime() {
+    if let Some(rt) = tools::js_runtime() {
         cmd.args(["--js-runtimes", rt]);
     }
     if use_cookies
@@ -295,7 +270,9 @@ fn run(args: &[&str], use_cookies: bool) -> Result<(String, String), String> {
     cmd.args(args);
     let out = exec::run(cmd, TIMEOUT).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            "yt-dlp introuvable — installez-le (brew install yt-dlp, pipx install yt-dlp)".into()
+            "yt-dlp introuvable — son installation se fait au premier lancement, \
+             vérifiez la connexion (ou installez-le : pipx install yt-dlp)"
+                .into()
         } else {
             e.to_string()
         }

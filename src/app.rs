@@ -47,6 +47,7 @@ pub enum Msg {
     Stream { token: u64, result: Result<StreamInfo, String> },
     Thumb { id: String, frame: Vec<u8> },
     Player(PlayerEvent),
+    Notice(String),
 }
 
 pub struct StreamInfo {
@@ -228,7 +229,16 @@ impl App {
             hits: Hits::default(),
         };
         app.tick_mem();
-        if sources::js_runtime().is_none() {
+        {
+            // The managed yt-dlp: installed on first launch, refreshed daily.
+            let tx = app.tx.clone();
+            exec::spawn("yt-dlp-update", move || {
+                crate::tools::maintain_ytdlp(|text| {
+                    let _ = tx.send(Msg::Notice(text));
+                });
+            });
+        }
+        if crate::tools::js_runtime().is_none() {
             // Without one, yt-dlp cannot solve YouTube's `n` challenge: the
             // URLs it hands over are throttled below playback speed, and the
             // sound stalls and restarts every few seconds.
@@ -396,6 +406,12 @@ impl App {
             Msg::Player(PlayerEvent::Error(e)) => self.notify_error(&e),
             Msg::Player(PlayerEvent::Attempt(n, total)) => {
                 self.set_status(&format!("URL refusée, nouvelle tentative {n}/{total}"))
+            }
+            Msg::Notice(text) => {
+                self.set_status(&text);
+                let mut chars = text.chars();
+                let capitalised: String = chars.next().into_iter().flat_map(char::to_uppercase).chain(chars).collect();
+                self.notify(&capitalised, 5);
             }
             Msg::Player(PlayerEvent::Resumed(at, reason)) => {
                 let why = if reason.is_empty() { String::new() } else { format!(" ({reason})") };

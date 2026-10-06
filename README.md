@@ -7,65 +7,80 @@ Un onglet de navigateur qui lit YouTube coûte des centaines de mégaoctets.
 ytui garde au repos quelques mégaoctets : pas de runtime, pas de moteur de
 rendu, un tampon de cellules pour l'écran. yt-dlp (métadonnées) et curl
 (vérification du flux) sont lancés comme des processus jetables, et un seul
-ffmpeg assure à la fois la sortie son, l'analyseur et le clip vidéo. La RAM
+ffmpeg assure à la fois la sortie son, l'analyseur et le clip vidéo. Le
+binaire distribué embarque ffmpeg et un moteur JS, et maintient yt-dlp à jour
+tout seul. La RAM
 de tout l'arbre de processus est affichée dans la barre du bas.
 
-## Prérequis
+## Binaire autonome
 
-- ffmpeg
-- yt-dlp
-- curl (présent par défaut sur macOS et la plupart des distributions)
-- un moteur JS pour yt-dlp (`deno`, `node`, `bun` ou `quickjs`) : sans lui,
-  YouTube bride les flux et la lecture coupe toutes les quelques secondes
-  (ytui le signale au démarrage)
-- Linux/WSL : PulseAudio ou PipeWire (couche Pulse)
-- pour compiler : Rust stable récent, édition 2024 (`rustup`, https://rustup.rs)
+Les binaires de `dist/` embarquent tout ce qu'il faut :
 
-Debian / Ubuntu / WSL :
+| Fichier               | Pour                                   |
+|-----------------------|----------------------------------------|
+| `ytui-macos-arm64`    | Mac Apple Silicon (M1 à M4)            |
+| `ytui-linux-x86_64`   | Linux PC (Intel / AMD)                 |
+| `ytui-linux-aarch64`  | Linux ARM (Raspberry Pi 4/5, serveurs) |
 
-```
-sudo apt install -y ffmpeg curl yt-dlp
-```
+- **ffmpeg** et **quickjs** (moteur JS de yt-dlp) sont inclus, et extraits
+  une fois dans `~/.local/share/ytui/bin`. Ce ffmpeg réduit au strict
+  nécessaire pèse ~12 Mo en mémoire, contre ~20 Mo pour un ffmpeg de
+  distribution : il est utilisé de préférence à celui du système.
+- **yt-dlp** est téléchargé au premier lancement (barre d'état : « installation
+  de yt-dlp… »), vérifié par SHA-256, puis mis à jour automatiquement — un
+  contrôle par jour au plus. Il ne peut pas être figé dans le binaire :
+  YouTube change son lecteur toutes les quelques semaines.
 
-Arch :
+Il reste à fournir, côté système :
 
-```
-sudo pacman -S ffmpeg curl yt-dlp
-```
+- `curl` (présent par défaut sur macOS et quasiment toutes les distributions) ;
+- Linux : PulseAudio ou PipeWire (couche Pulse), une glibc ≥ 2.17 (toutes les
+  distributions courantes ; sur Alpine/musl, ytui se rabat sur le ffmpeg du
+  système) et, pour la version de yt-dlp gérée, `python3` ≥ 3.10 ou `unzip`.
 
-Fedora :
-
-```
-sudo dnf install ffmpeg curl yt-dlp
-```
-
-macOS :
+macOS : un binaire reçu par AirDrop ou téléchargé est bloqué par Gatekeeper
+(il n'est pas signé par un compte développeur Apple) :
 
 ```
-brew install ffmpeg yt-dlp
+xattr -d com.apple.quarantine ytui-macos-arm64
+chmod +x ytui-macos-arm64 && ./ytui-macos-arm64
 ```
 
-Le paquet yt-dlp des distributions est souvent en retard sur YouTube ;
-`pipx install yt-dlp` donne la dernière version.
+Le clip vidéo demande un terminal truecolor (iTerm2, Ghostty, WezTerm,
+Kitty…), le Terminal d'Apple ne l'est pas.
 
-## Lancement
+### Choisir ses propres outils
+
+- un `yt-dlp` placé à côté du binaire est prioritaire ;
+- `YTUI_YTDLP=/chemin/vers/yt-dlp` (ou `YTUI_YTDLP=yt-dlp` pour celui du
+  `PATH`) désactive la copie gérée ;
+- un `deno`, `node` ou `bun` installé est préféré au quickjs embarqué : il
+  résout les challenges YouTube plus vite.
+
+## Compiler
+
+Prérequis : Rust stable récent, édition 2024 (https://rustup.rs).
 
 ```
-./ytui.sh
+./ytui.sh                # compile si besoin puis lance
+cargo build --release    # target/release/ytui
 ```
 
-Le script compile le binaire en mode release au premier appel (puis seulement
-si les sources ont changé) et démarre l'application.
+Sans `bundle/`, le binaire n'embarque rien et utilise le ffmpeg, le moteur JS
+et le yt-dlp du système (ou la copie gérée de yt-dlp) — il faut alors
+installer ffmpeg (`brew install ffmpeg`, `apt install ffmpeg`…).
 
-Équivalent manuel :
+Binaires autonomes :
 
 ```
-cargo build --release
-./target/release/ytui
+brew install nasm pkg-config cmake zig
+cargo install --locked cargo-zigbuild
+scripts/dist.sh          # compile ffmpeg + qjs une fois (bundle/), puis dist/
 ```
 
-Le binaire est autonome : `target/release/ytui` peut être copié n'importe où
-dans le `PATH`. Un `yt-dlp` placé à côté de lui est utilisé en priorité.
+`scripts/build-bundle.sh <cible>` ne reconstruit que ffmpeg et qjs pour une
+cible. Le ffmpeg embarqué est sous LGPL (v2.1+ sur macOS, v3 sur Linux à
+cause de mbedTLS), sans composant GPL ; sources : https://ffmpeg.org/releases/.
 
 ## Usage
 
@@ -156,7 +171,8 @@ remplace ces suggestions normalement ; se connecter en cours de session avec
 
 ```
 cargo build --release   # binaire optimisé (LTO, strip, panic=abort)
-cargo test              # tests hors-ligne : parsing d'URL, sortie yt-dlp, mise en page
+cargo test              # hors-ligne : parsing, mise en page, extraction ffmpeg/qjs
+cargo test -- --ignored # installation de yt-dlp (télécharge depuis GitHub)
 cargo clippy
 ```
 
