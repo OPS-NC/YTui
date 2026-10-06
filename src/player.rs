@@ -34,6 +34,12 @@ const SINK_BUFFER_MS: u32 = if cfg!(target_os = "macos") { 100 } else { 200 };
 // race against expiry and a freshly signed URL fixes them.
 const ATTEMPTS: u32 = 4;
 const OPEN_TIMEOUT: Duration = Duration::from_secs(5); // wait for the first samples
+// A stream that ends this far before its known duration was cut, not
+// finished: googlevideo drops long-lived connections, and ffmpeg's own
+// -reconnect gives up on a URL that has meanwhile expired. Resume from the
+// position with a freshly signed URL, a bounded number of times per track.
+const CUT_MARGIN_S: f64 = 5.0;
+const MAX_RESUMES: u32 = 3;
 // Decode grid for the optional clip: fixed, so a terminal resize never has
 // to restart ffmpeg — the widget samples this buffer down to whatever cell
 // grid it has. 320x180 at 12 fps is 2 Mo/s through a pipe, and 16:9 like
@@ -56,6 +62,8 @@ pub enum PlayerEvent {
     Finished,
     Error(String),
     Attempt(u32, u32),
+    /// The stream broke off at this position; playback resumes from there.
+    Resumed(f64, String),
 }
 
 /// One-shot ffmpeg decode of a video's default thumbnail, straight to the
@@ -113,6 +121,7 @@ struct Ctl {
     // fatal, so the caller decides before play().
     video: bool,
     start_offset: f64,
+    resumes: u32,
 }
 
 struct Shared {
@@ -144,6 +153,7 @@ impl Player {
                     volume: 1.0,
                     video: false,
                     start_offset: 0.0,
+                    resumes: 0,
                 }),
                 samples_read: AtomicU64::new(0),
                 loaded: AtomicBool::new(false),
@@ -204,6 +214,18 @@ impl Player {
     /// headers make no difference). So opening a stream is a retry loop, run
     /// off the UI thread — never a single shot.
     pub fn play(&self, provider: Provider, duration: Option<f64>, start: f64) -> Result<(), String> {
+        self.ctl().resumes = 0;
+        self.start(provider, duration, start, false)
+    }
+
+    /// `play` for the same track: seek, volume, resume after a cut.
+    fn start(
+        &self,
+        provider: Provider,
+        duration: Option<f64>,
+        start: f64,
+        refresh_first: bool,
+    ) -> Result<(), String> {
         if exec::which("ffmpeg").is_none() {
             return Err("ffmpeg introuvable dans le PATH".into());
         }
@@ -228,11 +250,11 @@ impl Player {
             epoch
         };
         let me = self.clone();
-        exec::spawn("launch", move || me.launch(provider, epoch, start.max(0.0)));
+        exec::spawn("launch", move || me.launch(provider, epoch, start.max(0.0), refresh_first));
         Ok(())
     }
 
-    fn launch(&self, provider: Provider, epoch: u64, start: f64) {
+    fn launch(&self, provider: Provider, epoch: u64, start: f64, refresh_first: bool) {
         let mut last = String::from("flux indisponible");
         for attempt in 0..ATTEMPTS {
             if !self.current(epoch) {
@@ -241,7 +263,7 @@ impl Player {
             if attempt > 0 {
                 (self.s.notify)(PlayerEvent::Attempt(attempt + 1, ATTEMPTS));
             }
-            let (url, headers) = match provider(attempt > 0) {
+            let (url, headers) = match provider(refresh_first || attempt > 0) {
                 Ok(found) => found,
                 Err(e) => {
                     last = e;
@@ -374,7 +396,8 @@ impl Player {
             let me = self.clone();
             let pipe = child.stdout.take();
             let started = started.clone();
-            exec::spawn("ffmpeg-pcm", move || me.read_vis(pipe, epoch, &started));
+            let stderr_last = stderr_last.clone();
+            exec::spawn("ffmpeg-pcm", move || me.read_vis(pipe, epoch, &started, &stderr_last));
         }
         if let Some(pipe) = video_pipe {
             let me = self.clone();
@@ -463,7 +486,7 @@ impl Player {
         if let Some(d) = duration.filter(|d| *d > 0.0) {
             target = target.min((d - 1.0).max(0.0));
         }
-        self.play(provider, duration, target.max(0.0))
+        self.start(provider, duration, target.max(0.0), false)
     }
 
     /// Volume lives in ffmpeg's filter graph, so it restarts in place.
@@ -474,7 +497,7 @@ impl Player {
             (ctl.provider.clone(), ctl.duration)
         };
         match provider.filter(|_| self.loaded()) {
-            Some(p) => self.play(p, duration, self.position()),
+            Some(p) => self.start(p, duration, self.position(), false),
             None => Ok(()),
         }
     }
@@ -518,7 +541,13 @@ impl Player {
     /// Drains the analyser pipe. Must never stall: ffmpeg blocks on a full
     /// pipe, and that would stall playback too. So this thread only reads
     /// and keeps the tail — the maths happen in `Analyser`, on the UI side.
-    fn read_vis(&self, pipe: Option<std::process::ChildStdout>, epoch: u64, started: &AtomicBool) {
+    fn read_vis(
+        &self,
+        pipe: Option<std::process::ChildStdout>,
+        epoch: u64,
+        started: &AtomicBool,
+        stderr_last: &Mutex<String>,
+    ) {
         let mut raw = [0u8; 2048]; // 1024 samples
         if let Some(mut pipe) = pipe {
             while self.current(epoch) {
@@ -543,18 +572,36 @@ impl Player {
         if !started.load(Ordering::SeqCst) {
             return; // never produced audio: spawn() will retry
         }
-        let child = {
+        let position = self.position();
+        let (child, resume) = {
             let mut ctl = self.ctl();
             if !self.current(epoch) {
                 return;
             }
+            let cut = ctl.duration.is_some_and(|d| position < d - CUT_MARGIN_S);
+            let resume = match ctl.provider.clone() {
+                Some(p) if cut && ctl.resumes < MAX_RESUMES => {
+                    ctl.resumes += 1;
+                    Some((p, ctl.duration))
+                }
+                _ => None,
+            };
             self.s.loaded.store(false, Ordering::Relaxed);
-            ctl.child.take()
+            (ctl.child.take(), resume)
         };
         if let Some(mut child) = child {
             let _ = child.wait();
         }
-        (self.s.notify)(PlayerEvent::Finished);
+        let Some((provider, duration)) = resume else {
+            return (self.s.notify)(PlayerEvent::Finished);
+        };
+        // ffmpeg's last words, if its stderr has been drained by now.
+        std::thread::sleep(Duration::from_millis(100));
+        let reason = stderr_last.lock().map(|s| s.clone()).unwrap_or_default();
+        (self.s.notify)(PlayerEvent::Resumed(position, reason));
+        if let Err(e) = self.start(provider, duration, position, true) {
+            (self.s.notify)(PlayerEvent::Error(e));
+        }
     }
 
     fn window(&self, out: &mut [f32; WINDOW]) {

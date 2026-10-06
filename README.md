@@ -15,7 +15,9 @@ de tout l'arbre de processus est affichée dans la barre du bas.
 - ffmpeg
 - yt-dlp
 - curl (présent par défaut sur macOS et la plupart des distributions)
-- conseillé : un moteur JS pour yt-dlp (`deno`, `node`, `bun` ou `quickjs`)
+- un moteur JS pour yt-dlp (`deno`, `node`, `bun` ou `quickjs`) : sans lui,
+  YouTube bride les flux et la lecture coupe toutes les quelques secondes
+  (ytui le signale au démarrage)
 - Linux/WSL : PulseAudio ou PipeWire (couche Pulse)
 - pour compiler : Rust stable récent, édition 2024 (`rustup`, https://rustup.rs)
 

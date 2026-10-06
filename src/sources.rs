@@ -188,7 +188,7 @@ fn ytdlp_cmd() -> Command {
 /// yt-dlp needs a JS engine to solve YouTube's signature challenges and only
 /// auto-enables deno. Any of these will do, so whatever is installed is
 /// declared — extraction without one is deprecated upstream.
-fn js_runtime() -> Option<&'static str> {
+pub fn js_runtime() -> Option<&'static str> {
     static FOUND: OnceLock<Option<&'static str>> = OnceLock::new();
     *FOUND.get_or_init(|| {
         ["deno", "node", "bun", "quickjs"].into_iter().find(|r| exec::which(r).is_some())

@@ -228,6 +228,16 @@ impl App {
             hits: Hits::default(),
         };
         app.tick_mem();
+        if sources::js_runtime().is_none() {
+            // Without one, yt-dlp cannot solve YouTube's `n` challenge: the
+            // URLs it hands over are throttled below playback speed, and the
+            // sound stalls and restarts every few seconds.
+            app.notify(
+                "Aucun moteur JavaScript (deno, node, bun, quickjs) : YouTube bridera \
+                 les flux et la lecture saccadera — installez-en un.",
+                10,
+            );
+        }
         if sources::cookie_browser().is_some() {
             // Only when already authenticated at launch — "L" mid-session
             // doesn't retrigger this, so it never clobbers whatever the user
@@ -387,6 +397,11 @@ impl App {
             Msg::Player(PlayerEvent::Attempt(n, total)) => {
                 self.set_status(&format!("URL refusée, nouvelle tentative {n}/{total}"))
             }
+            Msg::Player(PlayerEvent::Resumed(at, reason)) => {
+                let why = if reason.is_empty() { String::new() } else { format!(" ({reason})") };
+                self.set_status(&format!("flux coupé à {}, reprise…", sources::fmt_time(at)));
+                self.notify(&format!("Flux interrompu à {}{why} — reprise", sources::fmt_time(at)), 4);
+            }
         }
     }
 
@@ -488,6 +503,9 @@ impl App {
         self.now_title = video.title.clone();
         self.now_sub = format!("{}  ·  ouverture du flux…", or_dash(&video.uploader));
         self.current = Some(video);
+        // Resolving takes seconds: say so, rather than leaving a stale
+        // "double-clic pour lire" up that reads as if the click was lost.
+        self.set_status("ouverture du flux…");
         // Une piste enchaînée garde l'image si elle est déjà affichée.
         self.start_stream(0.0, self.deck_video || self.fullscreen);
         if !keep_queue {
