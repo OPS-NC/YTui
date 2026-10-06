@@ -509,6 +509,14 @@ pub fn seek_bar(buf: &mut Buffer, area: Rect, pos: f64, dur: f64, paused: bool) 
 /// picture keeps the terminal's full colour depth at twice the vertical
 /// resolution. Tables are rebuilt only when the target size changes, so a
 /// window resize costs a table rebuild instead of an ffmpeg restart.
+/// 5 bits per channel instead of 8: invisible at half-block resolution, but
+/// neighbouring cells then often share a colour (its escape is not repeated)
+/// and still areas stop flickering with compression noise (the cell diff
+/// skips them) — far fewer bytes for the terminal to chew through per frame.
+fn quantise(c: u8) -> u8 {
+    (c & 0xF8) | 0x04
+}
+
 #[derive(Default)]
 pub struct HalfBlock {
     grid: (u16, u16, usize, usize),
@@ -558,7 +566,7 @@ impl HalfBlock {
                 return Color::Rgb(0, 0, 0);
             }
             let i = (row as usize * src_w + col as usize) * 3;
-            Color::Rgb(data[i], data[i + 1], data[i + 2])
+            Color::Rgb(quantise(data[i]), quantise(data[i + 1]), quantise(data[i + 2]))
         };
         for y in 0..area.height {
             let (top, bottom) = (self.rows[2 * y as usize], self.rows[2 * y as usize + 1]);

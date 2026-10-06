@@ -173,7 +173,6 @@ pub struct App {
     analyser: Analyser,
     clip_small: HalfBlock,
     clip_full: HalfBlock,
-    shown_frame: Option<u64>,
     shown_seek: (u64, u64, bool),
     next_anim: Instant,
     next_mem: Instant,
@@ -221,7 +220,6 @@ impl App {
             analyser: Analyser::new(),
             clip_small: HalfBlock::default(),
             clip_full: HalfBlock::default(),
-            shown_frame: None,
             shown_seek: (0, 0, false),
             next_anim: now,
             next_mem: now,
@@ -305,13 +303,9 @@ impl App {
     }
 
     fn animate(&mut self) {
-        if self.fullscreen || self.deck_video {
-            let no = self.player.frame_no();
-            if no != self.shown_frame {
-                self.shown_frame = no;
-                self.dirty = true;
-            }
-        } else if self.player.loaded() || self.analyser.active() {
+        // The clip redraws on PlayerEvent::Frame, not here.
+        let clip_shown = self.fullscreen || self.deck_video;
+        if !clip_shown && (self.player.loaded() || self.analyser.active()) {
             let before = (self.analyser.bands, self.analyser.peaks);
             self.analyser.update(&self.player);
             self.dirty |= before != (self.analyser.bands, self.analyser.peaks);
@@ -401,6 +395,11 @@ impl App {
                 if self.thumbs_mode {
                     self.grid.frames.insert(id, frame);
                 }
+            }
+            Msg::Player(PlayerEvent::Frame) => {
+                // Not acknowledged while hidden: no more Frame messages until
+                // the clip is on screen again and drawn.
+                self.dirty = self.fullscreen || self.deck_video;
             }
             Msg::Player(PlayerEvent::Finished) => self.action_next_track(),
             Msg::Player(PlayerEvent::Error(e)) => self.notify_error(&e),
@@ -761,7 +760,7 @@ impl App {
     // ----------------------------------------------------------------- clip
 
     fn apply_deck(&mut self) {
-        self.shown_frame = None;
+        self.dirty = true; // the next draw acks, so frames start flowing
     }
 
     /// Rouvre le flux courant avec sa piste vidéo si besoin. False = rien à
@@ -803,7 +802,6 @@ impl App {
             return;
         }
         self.fullscreen = true;
-        self.shown_frame = None;
         self.notify("Plein écran — « Échap » pour revenir", 3);
     }
 
@@ -1309,6 +1307,7 @@ impl App {
             self.hits.deck_clip = meter;
             let frame = self.player.frame();
             self.clip_small.render(buf, meter, &frame, player::VID_W, player::VID_H);
+            self.player.ack_frame();
         } else {
             self.hits.deck_clip = Rect::default();
             w::spectrum(buf, meter, &self.analyser);
@@ -1334,6 +1333,7 @@ impl App {
             let frame = self.player.frame();
             self.clip_full.render(buf, clip, &frame, player::VID_W, player::VID_H);
         }
+        self.player.ack_frame();
         if area.height < 2 || area.width < 5 {
             return;
         }

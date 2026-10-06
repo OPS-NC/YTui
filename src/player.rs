@@ -42,11 +42,13 @@ const CUT_MARGIN_S: f64 = 5.0;
 const MAX_RESUMES: u32 = 3;
 // Decode grid for the optional clip: fixed, so a terminal resize never has
 // to restart ffmpeg — the widget samples this buffer down to whatever cell
-// grid it has. 320x180 at 12 fps is 2 Mo/s through a pipe, and 16:9 like
-// the source.
+// grid it has. 320x180 at 24 fps is 4 Mo/s through a pipe, and 16:9 like
+// the source. 12 fps read as a slideshow; ffmpeg decodes every source frame
+// either way, so doubling the output rate only costs the scaling and the
+// drawing.
 pub const VID_W: usize = 320;
 pub const VID_H: usize = 180;
-const VID_FPS: u32 = 12;
+const VID_FPS: u32 = 24;
 const VID_FRAME: usize = VID_W * VID_H * 3;
 const WINDOW: usize = 256; // samples per analysis window (16 ms)
 pub const NBANDS: usize = 32;
@@ -64,6 +66,9 @@ pub enum PlayerEvent {
     Attempt(u32, u32),
     /// The stream broke off at this position; playback resumes from there.
     Resumed(f64, String),
+    /// A new clip frame is ready. Sent once until the UI acknowledges it
+    /// (`ack_frame`), so a UI not drawing the clip is never flooded.
+    Frame,
 }
 
 /// One-shot ffmpeg decode of a video's default thumbnail, straight to the
@@ -135,6 +140,7 @@ struct Shared {
     paused: AtomicBool,
     window: Mutex<Ring>,
     frame: Mutex<Frame>,
+    frame_pending: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -162,6 +168,7 @@ impl Player {
                 paused: AtomicBool::new(false),
                 window: Mutex::new(Ring { buf: [0.0; WINDOW], pos: 0 }),
                 frame: Mutex::new(Frame { data: Vec::new(), no: 0, valid: false }),
+                frame_pending: AtomicBool::new(false),
             }),
         }
     }
@@ -512,9 +519,9 @@ impl Player {
         self.s.frame.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn frame_no(&self) -> Option<u64> {
-        let f = self.frame();
-        f.valid.then_some(f.no)
+    /// The UI drew the current frame: the next one may notify again.
+    pub fn ack_frame(&self) {
+        self.s.frame_pending.store(false, Ordering::Release);
     }
 
     /// Drains the picture pipe, keeping only the newest frame. Like the
@@ -526,16 +533,23 @@ impl Player {
             if pipe.read_exact(&mut buf).is_err() {
                 break;
             }
-            let mut frame = self.frame();
-            if !self.current(epoch) {
-                break;
+            {
+                let mut frame = self.frame();
+                if !self.current(epoch) {
+                    break;
+                }
+                std::mem::swap(&mut frame.data, &mut buf);
+                if buf.len() != VID_FRAME {
+                    buf = vec![0u8; VID_FRAME]; // first frame: the shared slot was empty
+                }
+                frame.no += 1;
+                frame.valid = true;
             }
-            std::mem::swap(&mut frame.data, &mut buf);
-            if buf.len() != VID_FRAME {
-                buf = vec![0u8; VID_FRAME]; // first frame: the shared slot was empty
+            // Pushed rather than polled: a 20 Hz poll of a 24 fps source
+            // shows frames for uneven 50/100 ms stretches — visible judder.
+            if !self.s.frame_pending.swap(true, Ordering::AcqRel) {
+                (self.s.notify)(PlayerEvent::Frame);
             }
-            frame.no += 1;
-            frame.valid = true;
         }
     }
 

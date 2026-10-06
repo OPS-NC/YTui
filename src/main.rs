@@ -14,16 +14,17 @@ mod theme;
 mod tools;
 mod widgets;
 
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::sync::mpsc;
 use std::time::Instant;
 
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
 };
-use crossterm::execute;
+use crossterm::{execute, queue};
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+    BeginSynchronizedUpdate, EndSynchronizedUpdate, EnterAlternateScreen, LeaveAlternateScreen,
+    disable_raw_mode, enable_raw_mode,
 };
 use ratatui_core::backend::Backend;
 use ratatui_core::buffer::Buffer;
@@ -49,8 +50,10 @@ fn restore_terminal() {
 /// key or mouse event, on every resize (tiling window managers resize right
 /// after launch). A fullscreen app has no cursor worth restoring, so a plain
 /// clear does the job.
+const OUT_BUFFER: usize = 64 * 1024;
+
 struct Screen {
-    backend: CrosstermBackend<io::Stdout>,
+    backend: CrosstermBackend<BufWriter<io::Stdout>>,
     buffers: [Buffer; 2],
     current: usize,
 }
@@ -58,7 +61,10 @@ struct Screen {
 impl Screen {
     fn new() -> io::Result<Self> {
         let empty = Buffer::empty(Rect::default());
-        Ok(Self { backend: CrosstermBackend::new(io::stdout()), buffers: [empty.clone(), empty], current: 0 })
+        // Stdout's own buffer is 1 KiB: a full-screen clip frame (two RGB
+        // escapes per cell, ~400 kB) went out in hundreds of write(2)s.
+        let out = BufWriter::with_capacity(OUT_BUFFER, io::stdout());
+        Ok(Self { backend: CrosstermBackend::new(out), buffers: [empty.clone(), empty], current: 0 })
     }
 
     fn draw(&mut self, render: impl FnOnce(&mut Buffer)) -> io::Result<()> {
@@ -71,6 +77,10 @@ impl Screen {
             }
             self.backend.clear()?;
         }
+        // Synchronized output (DEC 2026): the terminal shows the frame once
+        // it is complete instead of painting it as it streams in — no
+        // tearing in the clip. Terminals without it ignore the sequence.
+        queue!(self.backend, BeginSynchronizedUpdate)?;
         let (cur, prev) = (self.current, 1 - self.current);
         self.buffers[cur].reset();
         render(&mut self.buffers[cur]);
@@ -78,6 +88,7 @@ impl Screen {
         let (prev_buf, cur_buf) = if prev == 0 { (a, b) } else { (b, a) };
         self.backend.draw(prev_buf.diff_iter(cur_buf))?;
         self.backend.hide_cursor()?;
+        queue!(self.backend, EndSynchronizedUpdate)?;
         Backend::flush(&mut self.backend)?;
         self.current = prev;
         Ok(())

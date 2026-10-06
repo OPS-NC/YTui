@@ -24,7 +24,7 @@ Concretely, when weighing a change:
   channel: 20 Hz (`FPS_PERIOD`) only while something moves on screen (playing,
   or the meter decaying), once a second otherwise for the RAM readout. Redraws
   happen only when `dirty`; the clip redraws only on a new frame
-  (`VID_FPS = 12`, a 320x180 decode grid). No blinking cursor.
+  (`VID_FPS = 24`, a 320x180 decode grid, pushed by the player rather than polled). No blinking cursor.
 - No new resident processes, threads or buffers unless something equally costly
   goes away. Worker threads get a 256 KiB stack (`exec::spawn`).
 - The RAM figure in the status bar is a feature, not debug output — it is the
