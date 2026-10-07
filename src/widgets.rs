@@ -30,7 +30,7 @@ pub fn fill(buf: &mut Buffer, area: Rect, bg: Color) {
         for x in area.left()..area.right() {
             let cell = &mut buf[(x, y)];
             cell.reset();
-            cell.set_bg(bg).set_fg(t::SCREEN_FG);
+            cell.set_bg(bg).set_fg(t::get().screen_fg);
         }
     }
 }
@@ -128,7 +128,7 @@ fn scrollbar(buf: &mut Buffer, area: Rect, total: usize, offset: usize) -> u16 {
     for row in 0..h {
         let cell = &mut buf[(x, area.y + row as u16)];
         cell.set_symbol(" ");
-        cell.set_bg(if (start..start + thumb).contains(&row) { t::SCROLLBAR } else { t::PANEL_BG });
+        cell.set_bg(if (start..start + thumb).contains(&row) { t::get().scrollbar } else { t::get().panel_bg });
     }
     area.width - 1
 }
@@ -251,11 +251,11 @@ impl TextInput {
 
     pub fn render(&mut self, buf: &mut Buffer, area: Rect, focused: bool, placeholder: &str) {
         let (border, bg, title) = if focused {
-            (t::BORDER_FOCUS, t::SEARCH_BG_FOCUS, t::BORDER_TITLE_FOCUS)
+            (t::get().border_focus, t::get().search_bg_focus, t::get().border_title_focus)
         } else {
-            (t::BORDER, t::SEARCH_BG, t::BORDER_TITLE)
+            (t::get().border, t::get().search_bg, t::get().border_title)
         };
-        tall_box(buf, area, border, bg, t::SCREEN_BG, Some(("S E A R C H", title)));
+        tall_box(buf, area, border, bg, t::get().screen_bg, Some(("S E A R C H", title)));
         let mut view = inner(area);
         view.x += 1; // Input's own `padding: 0 1`
         view.width = view.width.saturating_sub(2);
@@ -264,9 +264,9 @@ impl TextInput {
         if w == 0 || view.height == 0 {
             return;
         }
-        let cursor_style = Style::new().fg(t::CURSOR_FG).bg(t::CURSOR_BG);
+        let cursor_style = Style::new().fg(t::get().cursor_fg).bg(t::get().cursor_bg);
         if self.chars.is_empty() {
-            spans(buf, view.x, view.y, view.width, &[(placeholder, fg(t::PLACEHOLDER))]);
+            spans(buf, view.x, view.y, view.width, &[(placeholder, fg(t::get().placeholder))]);
             if focused {
                 buf[(view.x, view.y)].set_style(cursor_style);
             }
@@ -285,7 +285,7 @@ impl TextInput {
         for (ch, cw) in self.chars.iter().zip(&widths) {
             if col >= self.scroll && col + cw <= self.scroll + w {
                 let x = view.x + (col - self.scroll) as u16;
-                buf.set_stringn(x, view.y, ch.encode_utf8(&mut ch_buf), *cw, fg(t::SEARCH_FG));
+                buf.set_stringn(x, view.y, ch.encode_utf8(&mut ch_buf), *cw, fg(t::get().search_fg));
             }
             col += cw;
         }
@@ -387,8 +387,8 @@ impl VList {
         hover: Option<usize>,
     ) {
         let (border, title) =
-            if focused { (t::BORDER_FOCUS, t::BORDER_TITLE_FOCUS) } else { (t::BORDER, t::BORDER_TITLE) };
-        tall_box(buf, area, border, t::PANEL_BG, t::SCREEN_BG, Some((&self.title, title)));
+            if focused { (t::get().border_focus, t::get().border_title_focus) } else { (t::get().border, t::get().border_title) };
+        tall_box(buf, area, border, t::get().panel_bg, t::get().screen_bg, Some((&self.title, title)));
         let view = inner(area);
         self.view = view;
         let max = self.items.len().saturating_sub(view.height as usize);
@@ -399,7 +399,7 @@ impl VList {
                 let text_w = 2 + label.width() as u16;
                 let x = view.x + view.width.saturating_sub(text_w) / 2;
                 let y = view.y + view.height.saturating_sub(1) / 2;
-                spans(buf, x, y, view.width, &[(glyph, bold(t::SPINNER)), (" ", fg(t::SPINNER_LABEL)), (label, fg(t::SPINNER_LABEL))]);
+                spans(buf, x, y, view.width, &[(glyph, bold(t::get().spinner)), (" ", fg(t::get().spinner_label)), (label, fg(t::get().spinner_label))]);
             }
             return;
         }
@@ -419,12 +419,12 @@ impl VList {
 /// cursor (keyboard or mouse) — the two are independent and often disagree.
 fn video_row(buf: &mut Buffer, line: Rect, video: &Video, playing: bool, highlighted: bool, hovered: bool) {
     let (bg, marker, dur, title, uploader) = if playing {
-        (t::ROW_PLAYING_BG, "▶ ", t::ROW_DUR_PLAYING, bold(t::ROW_TITLE_HL), t::ROW_UPLOADER_HL)
+        (t::get().row_playing_bg, "▶ ", t::get().row_dur_playing, bold(t::get().row_title_hl), t::get().row_uploader_hl)
     } else if highlighted {
-        (t::ROW_HIGHLIGHT_BG, "▌ ", t::ROW_DUR_HL, bold(t::ROW_TITLE_HL), t::ROW_UPLOADER_HL)
+        (t::get().row_highlight_bg, "▌ ", t::get().row_dur_hl, bold(t::get().row_title_hl), t::get().row_uploader_hl)
     } else {
-        let bg = if hovered { t::ROW_HOVER_BG } else { t::PANEL_BG };
-        (bg, "  ", t::ROW_DUR, fg(t::ROW_TITLE), t::ROW_UPLOADER)
+        let bg = if hovered { t::get().row_hover_bg } else { t::get().panel_bg };
+        (bg, "  ", t::get().row_dur, fg(t::get().row_title), t::get().row_uploader)
     };
     fill(buf, line, bg);
     let duration = format!("{:>7}  ", video.duration_str());
@@ -434,7 +434,7 @@ fn video_row(buf: &mut Buffer, line: Rect, video: &Video, playing: bool, highlig
         line.x,
         line.y,
         line.width,
-        &[(marker, fg(t::ROW_MARKER)), (&duration, fg(dur)), (&video.title, title), (&by, fg(uploader))],
+        &[(marker, fg(t::get().row_marker)), (&duration, fg(dur)), (&video.title, title), (&by, fg(uploader))],
     );
 }
 
@@ -445,10 +445,10 @@ const EIGHTHS: [&str; 9] = [" ", "▁", "▂", "▃", "▄", "▅", "▆", "▇"
 
 fn ramp(v: f32) -> Color {
     let v = v.clamp(0.0, 0.999);
-    let pos = v * (t::RAMP.len() - 1) as f32;
+    let pos = v * (t::get().ramp.len() - 1) as f32;
     let i = pos as usize;
     let f = pos - i as f32;
-    let (a, b) = (t::RAMP[i], t::RAMP[(i + 1).min(t::RAMP.len() - 1)]);
+    let (a, b) = (t::get().ramp[i], t::get().ramp[(i + 1).min(t::get().ramp.len() - 1)]);
     let mix = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * f) as u8;
     Color::Rgb(mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2))
 }
@@ -462,8 +462,8 @@ pub fn spectrum(buf: &mut Buffer, area: Rect, an: &Analyser) {
     let bar = (w / NBANDS).max(1);
     let gap = usize::from(bar > 1);
     let glyph_w = bar - gap;
-    let unlit = fg(t::CHASSIS);
-    let peak_style = bold(t::EMBER);
+    let unlit = fg(t::get().chassis);
+    let peak_style = bold(t::get().ember);
     for y in 0..h {
         let row = h - 1 - y; // counted from the baseline
         let lit = fg(ramp((row as f32 + 0.5) / h as f32));
@@ -509,8 +509,8 @@ pub fn seek_bar(buf: &mut Buffer, area: Rect, pos: f64, dur: f64, paused: bool) 
     let pos_txt = format!("  {pos_s}  ");
     let done_txt = "━".repeat(done);
     let todo_txt = "┄".repeat(track.saturating_sub(done + 1));
-    let head_style = if paused { bold(t::SEEK_PAUSED) } else { bold(t::SEEK_PLAY) };
-    let right_style = if dur > 0.0 { fg(t::SEEK_DUR) } else { bold(t::SEEK_LIVE) };
+    let head_style = if paused { bold(t::get().seek_paused) } else { bold(t::get().seek_play) };
+    let right_style = if dur > 0.0 { fg(t::get().seek_dur) } else { bold(t::get().seek_live) };
     spans(
         buf,
         area.x,
@@ -518,10 +518,10 @@ pub fn seek_bar(buf: &mut Buffer, area: Rect, pos: f64, dur: f64, paused: bool) 
         area.width,
         &[
             (head, head_style),
-            (&pos_txt, bold(t::SEEK_POS)),
-            (&done_txt, fg(t::SEEK_DONE)),
-            ("◆", bold(t::SEEK_HEAD)),
-            (&todo_txt, fg(t::SEEK_TODO)),
+            (&pos_txt, bold(t::get().seek_pos)),
+            (&done_txt, fg(t::get().seek_done)),
+            ("◆", bold(t::get().seek_head)),
+            (&todo_txt, fg(t::get().seek_todo)),
             (&right, right_style),
         ],
     );
@@ -734,8 +734,8 @@ impl ThumbGrid {
 
     pub fn render(&mut self, buf: &mut Buffer, area: Rect, focused: bool, videos: &[Video], playing: Option<&str>) {
         let (border, title) =
-            if focused { (t::BORDER_FOCUS, t::BORDER_TITLE_FOCUS) } else { (t::BORDER, t::BORDER_TITLE) };
-        tall_box(buf, area, border, t::PANEL_BG, t::SCREEN_BG, Some(("U P   N E X T   ·   thumbnails", title)));
+            if focused { (t::get().border_focus, t::get().border_title_focus) } else { (t::get().border, t::get().border_title) };
+        tall_box(buf, area, border, t::get().panel_bg, t::get().screen_bg, Some(("U P   N E X T   ·   thumbnails", title)));
         let mut view = inner(area);
         if view.width == 0 || view.height == 0 {
             return;
@@ -757,7 +757,7 @@ impl ThumbGrid {
         if videos.is_empty() {
             let text = "nothing up next";
             let pad = (view.width as usize).saturating_sub(text.len()) / 2;
-            spans(buf, view.x + pad as u16, view.y + view.height / 2, view.width, &[(text, fg(t::THUMB_EMPTY))]);
+            spans(buf, view.x + pad as u16, view.y + view.height / 2, view.width, &[(text, fg(t::get().thumb_empty))]);
             return;
         }
         for y in 0..view.height as usize {
@@ -781,17 +781,17 @@ impl ThumbGrid {
             // got lost next to a colourful image. Playing (ember, matches the
             // "▶" marker elsewhere) wins over the cursor (amber).
             if playing {
-                fill(buf, line, t::THUMB_PLAYING_BAR);
+                fill(buf, line, t::get().thumb_playing_bar);
             } else if selected {
-                fill(buf, line, t::THUMB_SELECTED_BAR);
+                fill(buf, line, t::get().thumb_selected_bar);
             }
         } else if row == TITLE_ROW {
             let (bg, marker, marker_c, title) = if playing {
-                (t::ROW_PLAYING_BG, "▶ ", t::ROW_MARKER, bold(t::ROW_TITLE_HL))
+                (t::get().row_playing_bg, "▶ ", t::get().row_marker, bold(t::get().row_title_hl))
             } else if selected {
-                (t::THUMB_SELECTED_BG, "▌ ", t::THUMB_SELECTED_MARKER, bold(t::ROW_TITLE_HL))
+                (t::get().thumb_selected_bg, "▌ ", t::get().thumb_selected_marker, bold(t::get().row_title_hl))
             } else {
-                (t::PANEL_BG, "  ", t::PANEL_BG, fg(t::ROW_TITLE))
+                (t::get().panel_bg, "  ", t::get().panel_bg, fg(t::get().row_title))
             };
             fill(buf, line, bg);
             spans(buf, line.x, line.y, line.width, &[(marker, fg(marker_c)), (&video.title, title)]);

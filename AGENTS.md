@@ -51,7 +51,7 @@ state; workers report back over an `mpsc` channel.
 | `src/main.rs` | entry point: CLI flags, terminal setup, input thread, main loop |
 | `src/app.rs` | `App` — state, key/mouse handling, workers, playback orchestration, layout + drawing |
 | `src/widgets.rs` | render-only pieces: tall border, `TextInput`, `VList`, spectrum, seek bar, `HalfBlock` clip, `ThumbGrid` |
-| `src/theme.rs` | all colours. **The only theme.** |
+| `src/theme.rs` | all colours: the `default`, `dark` and `white` themes as data, the active one, its persistence |
 | `src/sources.rs` | yt-dlp calls: search, related, playlist, home feed, URL/ID parsing, stream resolution, curl probe |
 | `src/player.rs` | `Player` — one ffmpeg process: sink output + PCM tap + optional RGB video tap; `Analyser` (Goertzel) |
 | `src/exec.rs` | subprocess with timeout, `which`, small-stack worker spawn |
@@ -85,8 +85,10 @@ convenience.
    video frames (fd 3) all come out of the same process. Don't add a second
    ffmpeg, PortAudio, cpal, an FFT crate or an image crate. (Thumbnails are
    separate one-shot ffmpeg decodes, sequential, only for what is on screen.)
-4. **One theme.** Every colour lives in `src/theme.rs`. Widgets never spell an
-   RGB value.
+4. **Colours live in `src/theme.rs` only.** Themes are plain `Theme` values
+   (`default`, `dark`, `white`), picked with `T` and saved to
+   `~/.local/share/ytui/theme`. Widgets read `theme::get()` at draw time and
+   never spell an RGB value; a new colour is a new field on every theme.
 5. **No new crates** without asking. Current set: `crossterm`, `ratatui-core`,
    `ratatui-crossterm`, `libc`, `unicode-width`. That is the whole budget.
    Default features stay off.

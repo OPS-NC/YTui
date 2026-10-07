@@ -142,6 +142,7 @@ picks the new release up within 3 hours (or right away with
 | `v`                    | Video clip in place of the spectrum          |
 | `V` / click the picture | Full-screen clip                            |
 | `t`                    | Thumbnail grid (playlist mode)               |
+| `T`                    | Theme picker (`default`, `dark`, `white`)    |
 | `L`                    | Log in (browser cookies)                     |
 | `Esc`                  | Back to the deck                             |
 | `s` / `q`              | Stop / quit (`Ctrl+C` too)                   |
@@ -173,6 +174,19 @@ size (~1 kB each), only for what is on screen. Arrows move the selection
 (highlighted by a high-contrast amber bar), the wheel or Home/End/PgUp/PgDn
 scroll, Enter or a double click plays — a single click only selects. A
 second `t` goes back to the text list.
+
+## Themes
+
+`T` opens the theme picker: `↑` `↓` preview each theme live on the whole
+screen, `Enter` keeps it, `Esc` goes back. The choice is remembered in
+`~/.local/share/ytui/theme`.
+
+- **default** — a late-70s hi-fi separate: warm near-black, amber legends,
+  an amber-to-ember meter.
+- **dark** — cool graphite with white text, cyan legends, a teal → violet →
+  pink meter.
+- **white** — paper and ink: white panels, black text, ink-blue legends,
+  burnt-orange accents.
 
 ## Authentication
 

@@ -83,6 +83,7 @@ enum Action {
     Clip,
     Fullscreen,
     Thumbs,
+    Theme,
     Login,
     ClipSmall,
     FocusSearch,
@@ -91,7 +92,7 @@ enum Action {
 }
 
 /// The footer, in display order — also clickable, like Textual's.
-const BINDINGS: [(&str, &str, Action); 14] = [
+const BINDINGS: [(&str, &str, Action); 15] = [
     ("space", "Pause", Action::TogglePause),
     ("n", "Next", Action::Next),
     ("←", "-10s", Action::SeekBack),
@@ -101,6 +102,7 @@ const BINDINGS: [(&str, &str, Action); 14] = [
     ("v", "Video", Action::Clip),
     ("V", "Fullscreen", Action::Fullscreen),
     ("t", "Thumbnails", Action::Thumbs),
+    ("T", "Theme", Action::Theme),
     ("L", "Login", Action::Login),
     ("esc", "Back", Action::ClipSmall),
     ("/", "Search", Action::FocusSearch),
@@ -121,6 +123,15 @@ struct Hits {
     full_clip: Rect,
     suggestions: Rect,
     footer: Vec<(Rect, Action)>,
+    picker_box: Rect,
+    picker_rows: Vec<(Rect, usize)>,
+}
+
+/// The `T` theme selector: `index` is previewed live, `original` comes back
+/// on cancel.
+struct Picker {
+    index: usize,
+    original: usize,
 }
 
 /// Per-group request counters: Textual's `exclusive=True` workers, minus the
@@ -170,6 +181,7 @@ pub struct App {
     fullscreen: bool,
     thumbs_mode: bool, // thumbnail grid in place of the "up next" list
     thumbs_requested: Vec<String>,
+    picker: Option<Picker>,
 
     analyser: Analyser,
     clip_small: HalfBlock,
@@ -189,6 +201,7 @@ impl App {
             let _ = ptx.send(Msg::Player(ev));
         });
         let now = Instant::now();
+        t::load_saved();
         let mut app = Self {
             tx,
             player,
@@ -219,6 +232,7 @@ impl App {
             fullscreen: false,
             thumbs_mode: false,
             thumbs_requested: Vec::new(),
+            picker: None,
             analyser: Analyser::new(),
             clip_small: HalfBlock::default(),
             clip_full: HalfBlock::default(),
@@ -859,6 +873,7 @@ impl App {
             Action::Clip => self.action_toggle_clip(),
             Action::Fullscreen => self.action_toggle_fullscreen(),
             Action::Thumbs => self.action_toggle_thumbs(),
+            Action::Theme => self.open_picker(),
             Action::Login => self.action_cycle_login(),
             // `Esc` only ever shrinks: it never opens the full screen.
             Action::ClipSmall => self.leave_fullscreen(),
@@ -926,6 +941,9 @@ impl App {
             self.quit = true;
             return;
         }
+        if self.picker.is_some() {
+            return self.picker_key(key);
+        }
         if !self.fullscreen {
             let consumed = match self.focus {
                 Focus::Search => self.input_key(key),
@@ -952,6 +970,7 @@ impl App {
             KeyCode::Char('v') => Action::Clip,
             KeyCode::Char('V') => Action::Fullscreen,
             KeyCode::Char('t') => Action::Thumbs,
+            KeyCode::Char('T') => Action::Theme,
             KeyCode::Char('L') => Action::Login,
             KeyCode::Esc => Action::ClipSmall,
             KeyCode::Char('/') => Action::FocusSearch,
@@ -1094,6 +1113,17 @@ impl App {
     }
 
     fn click(&mut self, x: u16, y: u16) {
+        if self.picker.is_some() {
+            match self.hits.picker_rows.iter().find(|(r, _)| contains(*r, x, y)) {
+                Some(&(_, i)) => {
+                    t::set(i);
+                    self.close_picker(true);
+                }
+                None if !contains(self.hits.picker_box, x, y) => self.close_picker(false),
+                None => self.dirty = false,
+            }
+            return;
+        }
         // A click on a toast dismisses it, as in Textual.
         if let Some(i) = self.toasts.iter().position(|t| contains(t.rect, x, y)) {
             self.toasts.remove(i);
@@ -1181,6 +1211,40 @@ impl App {
         self.hits.suggestions
     }
 
+    // --------------------------------------------------------------- themes
+
+    fn open_picker(&mut self) {
+        let current = t::index();
+        self.picker = Some(Picker { index: current, original: current });
+    }
+
+    /// Moving through the list previews each theme on the whole screen.
+    fn picker_key(&mut self, key: KeyEvent) {
+        let Some(picker) = self.picker.as_mut() else { return };
+        let n = t::ALL.len();
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::BackTab => picker.index = (picker.index + n - 1) % n,
+            KeyCode::Down | KeyCode::Char('j') | KeyCode::Tab => picker.index = (picker.index + 1) % n,
+            KeyCode::Enter => return self.close_picker(true),
+            KeyCode::Esc | KeyCode::Char('T' | 'q') => return self.close_picker(false),
+            _ => {
+                self.dirty = false;
+                return;
+            }
+        }
+        t::set(picker.index);
+    }
+
+    fn close_picker(&mut self, apply: bool) {
+        let Some(picker) = self.picker.take() else { return };
+        if apply {
+            t::save();
+            self.set_status(&format!("theme: {}", t::get().name));
+        } else {
+            t::set(picker.original);
+        }
+    }
+
     // ---------------------------------------------------------------- misc
 
     fn set_status(&mut self, message: &str) {
@@ -1230,22 +1294,23 @@ impl App {
         self.hits.footer.clear();
         if self.fullscreen {
             self.draw_fullscreen(buf, area);
-            self.draw_toasts(buf, area, area.height, t::CLIP_BG);
+            self.draw_picker(buf, area);
+            self.draw_toasts(buf, area, area.height, t::get().clip_bg);
             return;
         }
-        w::fill(buf, area, t::SCREEN_BG);
+        w::fill(buf, area, t::get().screen_bg);
         let (width, height) = (area.width, area.height);
         if width < 8 || height < 4 {
             return;
         }
 
         // top bar
-        w::fill(buf, Rect::new(0, 0, width, 1), t::BAR_BG);
+        w::fill(buf, Rect::new(0, 0, width, 1), t::get().bar_bg);
         let brand = "y t u i";
-        spans(buf, 2, 0, width.saturating_sub(2), &[(brand, bold(t::BRAND))]);
+        spans(buf, 2, 0, width.saturating_sub(2), &[(brand, bold(t::get().brand))]);
         let after_brand = 2 + brand.len() as u16 + 2;
         let status_w = (self.status.width() as u16).min(width.saturating_sub(after_brand + 2));
-        spans(buf, width - 2 - status_w, 0, status_w, &[(&self.status, fg(t::STATUS))]);
+        spans(buf, width - 2 - status_w, 0, status_w, &[(&self.status, fg(t::get().status))]);
 
         // search
         let search = Rect::new(2, 2, width - 4, 3.min(height.saturating_sub(3)));
@@ -1258,7 +1323,7 @@ impl App {
         let body_y = search.bottom() + 1;
         let body = Rect::new(2, body_y, width - 4, (height - 1).saturating_sub(body_y));
         if body.height == 0 {
-            self.draw_toasts(buf, area, height - 1, t::SCREEN_BG);
+            self.draw_toasts(buf, area, height - 1, t::get().screen_bg);
             return;
         }
         let right = if self.results_visible {
@@ -1286,14 +1351,15 @@ impl App {
             let focused = self.focus == Focus::Suggestions;
             self.suggestions.render(buf, rest, focused, playing, hover);
         }
-        self.draw_toasts(buf, area, height - 1, t::SCREEN_BG);
+        self.draw_picker(buf, area);
+        self.draw_toasts(buf, area, height - 1, t::get().screen_bg);
     }
 
     fn draw_bottom(&mut self, buf: &mut Buffer, bar: Rect) {
-        w::fill(buf, bar, t::BAR_BG);
+        w::fill(buf, bar, t::get().bar_bg);
         let mem_w = (self.mem.width() as u16 + 4).min(bar.width);
         let mem_x = bar.right() - mem_w;
-        spans(buf, mem_x + 2, bar.y, mem_w.saturating_sub(4), &[(&self.mem, fg(t::MEM))]);
+        spans(buf, mem_x + 2, bar.y, mem_w.saturating_sub(4), &[(&self.mem, fg(t::get().mem))]);
         let mut x = bar.x;
         for (key, desc, action) in BINDINGS {
             let key = format!(" {key} ");
@@ -1302,23 +1368,23 @@ impl App {
             if x + span_w > mem_x {
                 break;
             }
-            spans(buf, x, bar.y, span_w, &[(&key, bold(t::FOOTER_KEY)), (&desc, fg(t::FOOTER_DESC))]);
+            spans(buf, x, bar.y, span_w, &[(&key, bold(t::get().footer_key)), (&desc, fg(t::get().footer_desc))]);
             self.hits.footer.push((Rect::new(x, bar.y, span_w, 1), action));
             x += span_w + 1;
         }
     }
 
     fn draw_deck(&mut self, buf: &mut Buffer, deck: Rect) {
-        w::tall_box(buf, deck, t::BORDER, t::PANEL_BG, t::SCREEN_BG, Some(("D E C K", t::BORDER_TITLE)));
+        w::tall_box(buf, deck, t::get().border, t::get().panel_bg, t::get().screen_bg, Some(("D E C K", t::get().border_title)));
         let inner = w::inner(deck);
         // `padding: 1 2`
         let c = Rect::new(inner.x + 2, inner.y + 1, inner.width.saturating_sub(4), inner.height.saturating_sub(2));
         if c.width == 0 || c.height == 0 {
             return;
         }
-        spans(buf, c.x, c.y, c.width, &[(&self.now_title, bold(t::NOW_TITLE))]);
+        spans(buf, c.x, c.y, c.width, &[(&self.now_title, bold(t::get().now_title))]);
         if c.height > 1 {
-            spans(buf, c.x, c.y + 1, c.width, &[(&self.now_sub, fg(t::NOW_SUB))]);
+            spans(buf, c.x, c.y + 1, c.width, &[(&self.now_sub, fg(t::get().now_sub))]);
         }
         // Analyser by default; `v` puts the picture in its place, `V` sends it
         // full screen.
@@ -1346,7 +1412,7 @@ impl App {
     /// Full-screen clip: the picture over the whole terminal, caption and
     /// transport under it on the same black ground; `Esc` comes back.
     fn draw_fullscreen(&mut self, buf: &mut Buffer, area: Rect) {
-        w::fill(buf, area, t::CLIP_BG);
+        w::fill(buf, area, t::get().clip_bg);
         let clip = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(2));
         self.hits.full_clip = clip;
         {
@@ -1362,8 +1428,59 @@ impl App {
             Some(v) => format!("{}   ·   {}   ·   {}", v.title, or_dash(&v.uploader), self.source),
         };
         let inner_w = area.width - 4;
-        spans(buf, 2, area.bottom() - 2, inner_w, &[(&caption, bold(t::NOW_TITLE))]);
+        spans(buf, 2, area.bottom() - 2, inner_w, &[(&caption, bold(t::get().now_title))]);
         self.draw_seek(buf, Rect::new(2, area.bottom() - 1, inner_w, 1));
+    }
+
+    /// Centred over everything, in the colours of the theme being previewed.
+    fn draw_picker(&mut self, buf: &mut Buffer, area: Rect) {
+        self.hits.picker_rows.clear();
+        self.hits.picker_box = Rect::default();
+        let Some(picker) = &self.picker else { return };
+        let th = t::get();
+        let hint = "↑↓ preview · Enter apply · Esc cancel";
+        let n = t::ALL.len() as u16;
+        let (w, h) = (hint.width() as u16 + 8, n + 6);
+        if area.width < w || area.height < h {
+            return;
+        }
+        let rect = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
+        self.hits.picker_box = rect;
+        w::tall_box(buf, rect, th.border_focus, th.panel_bg, th.screen_bg, Some(("T H E M E", th.border_title_focus)));
+        let inner = Rect::new(rect.x + 2, rect.y + 2, rect.width - 4, n);
+        for (i, theme) in t::ALL.iter().enumerate() {
+            let row = Rect::new(inner.x, inner.y + i as u16, inner.width, 1);
+            let selected = i == picker.index;
+            let (bg, marker, name) = if selected {
+                (th.row_highlight_bg, "▶ ", bold(th.row_title_hl))
+            } else {
+                (th.panel_bg, "  ", fg(th.row_title))
+            };
+            w::fill(buf, row, bg);
+            let label = format!("{:<10}", theme.name);
+            spans(buf, row.x + 1, row.y, row.width - 1, &[(marker, fg(th.row_marker)), (&label, name)]);
+            // A swatch of the theme itself: ground, text, accent, meter, peak.
+            let r = |c: (u8, u8, u8)| ratatui_core::style::Color::Rgb(c.0, c.1, c.2);
+            let colours = [
+                theme.screen_bg,
+                theme.row_title_hl,
+                theme.border_focus,
+                r(theme.ramp[1]),
+                r(theme.ramp[4]),
+                r(theme.ramp[7]),
+                theme.ember,
+            ];
+            let mut x = row.x + 14;
+            for colour in colours {
+                if x + 2 > row.right() {
+                    break;
+                }
+                buf.set_stringn(x, row.y, "██", 2, fg(colour));
+                x += 2;
+            }
+            self.hits.picker_rows.push((row, i));
+        }
+        spans(buf, inner.x + 1, inner.bottom() + 1, inner.width - 1, &[(hint, fg(th.spinner_label))]);
     }
 
     /// Bottom-right stack, newest lowest, like Textual's toast rack.
@@ -1382,9 +1499,9 @@ impl App {
                 continue;
             }
             let rect = Rect::new(area.right() - width - 1, bottom - h, width, h);
-            w::tall_box(buf, rect, t::TOAST_BORDER, t::TOAST_BG, behind, None);
+            w::tall_box(buf, rect, t::get().toast_border, t::get().toast_bg, behind, None);
             for (i, line) in lines.iter().enumerate() {
-                spans(buf, rect.x + 2, rect.y + 2 + i as u16, text_w as u16, &[(line, fg(t::TOAST_FG))]);
+                spans(buf, rect.x + 2, rect.y + 2 + i as u16, text_w as u16, &[(line, fg(t::get().toast_fg))]);
             }
             toast.rect = rect;
             bottom = rect.y.saturating_sub(1); // `margin-top: 1`
@@ -1482,5 +1599,34 @@ mod tests {
         let line = out.lines().find(|l| l.contains("searching \"lofi\"…")).expect("spinner label drawn");
         println!("{line}");
         assert!(line.contains("⠸ searching"));
+    }
+
+    /// Each theme renders, the selector previews live and Esc restores.
+    #[test]
+    fn themes_and_picker() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut app = App::new(tx);
+        app.results.set_items(fake(5));
+        t::set(0);
+        app.open_picker();
+        for (i, theme) in t::ALL.iter().enumerate() {
+            let mut buf = Buffer::empty(Rect::new(0, 0, 120, 40));
+            app.draw(&mut buf);
+            assert_eq!(buf[(0, 1)].bg, theme.screen_bg, "{} paints the screen", theme.name);
+            let text: String = (0..40)
+                .map(|y| (0..120).map(|x| buf[(x, y)].symbol().to_string()).collect::<String>() + "\n")
+                .collect();
+            assert!(text.contains("T H E M E") && text.contains("▶ ") && text.contains(theme.name));
+            if i == 1 {
+                println!("{}", text.lines().filter(|l| l.contains('▊') && l.contains("██")).collect::<Vec<_>>().join("\n"));
+            }
+            app.picker_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        }
+        assert_eq!(t::index(), 0, "wrapped around");
+        app.picker_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        assert_eq!(t::index(), 1, "preview follows the cursor");
+        app.picker_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(app.picker.is_none());
+        assert_eq!(t::index(), 0, "Esc restores the original theme");
     }
 }

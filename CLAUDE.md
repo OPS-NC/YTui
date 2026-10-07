@@ -16,7 +16,7 @@ truth for architecture, hard rules, and conventions here. Read it in full before
 - **No in-process yt-dlp, HTTP or TLS** — yt-dlp and the stream probe (curl) run as throw-away
   subprocesses so their allocations go back to the OS. See the top of `src/sources.rs`.
 - **One ffmpeg process** for playback (sink audio + analyser PCM + optional video tap on fd 3).
-  **One theme** (`src/theme.rs`). **No new crates** without asking.
+  **Colours only in `src/theme.rs`** (themes `default`/`dark`/`white` as data, `T` picks one). **No new crates** without asking.
 - Blocking work runs in an `exec::spawn` worker and returns a `Msg` (with a request token) over the main
   channel — never block the main loop.
 
@@ -54,7 +54,7 @@ only while something animates, else once a second (RAM readout), and redraws onl
 | `src/main.rs` | CLI flags (`--firefox`…), terminal setup/restore, input thread, main loop |
 | `src/app.rs` | `App` — state, key/mouse routing, workers, queue logic, layout + drawing, offline layout test |
 | `src/widgets.rs` | tall border, `TextInput`, `VList`, spectrum, seek bar, `HalfBlock` clip, `ThumbGrid` |
-| `src/theme.rs` | every colour — the only theme |
+| `src/theme.rs` | every colour: `default`, `dark`, `white` themes, active theme + persistence |
 | `src/sources.rs` | yt-dlp calls (search, related, playlist, home feed), URL/ID parsing, stream resolution, curl probe |
 | `src/player.rs` | `Player` — one ffmpeg: sink + 16 kHz PCM tap + optional 320x180 RGB tap; `Analyser` (Goertzel) |
 | `src/exec.rs` | subprocess with timeout, `which`, small-stack thread spawn |
