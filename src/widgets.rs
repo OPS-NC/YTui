@@ -459,19 +459,25 @@ pub fn spectrum(buf: &mut Buffer, area: Rect, an: &Analyser) {
     if w == 0 || h == 0 {
         return;
     }
-    let bar = (w / NBANDS).max(1);
-    let gap = usize::from(bar > 1);
-    let glyph_w = bar - gap;
+    // Spread the bands over the whole width: band i owns columns
+    // [i*span/N, (i+1)*span/N), so the remainder of `w / NBANDS` is shared out
+    // instead of left blank on the right. With room for gaps, `span` counts a
+    // virtual gap past the edge so both ends sit flush with the box. Narrower
+    // than NBANDS, some bands get no column rather than cutting off the trebles.
+    let gap = usize::from(w >= 2 * NBANDS);
+    let span = w + gap;
     let unlit = fg(t::get().chassis);
     let peak_style = bold(t::get().ember);
     for y in 0..h {
         let row = h - 1 - y; // counted from the baseline
         let lit = fg(ramp((row as f32 + 0.5) / h as f32));
-        let mut x = area.x as usize;
-        for (value, peak) in an.bands.iter().zip(&an.peaks) {
-            if x + glyph_w > area.right() as usize {
-                break;
+        for (i, (value, peak)) in an.bands.iter().zip(&an.peaks).enumerate() {
+            let (x0, x1) = (i * span / NBANDS, (i + 1) * span / NBANDS);
+            let glyph_w = (x1 - x0).saturating_sub(gap);
+            if glyph_w == 0 {
+                continue;
             }
+            let x = area.x as usize + x0;
             let cell = value * h as f32 - row as f32;
             let (glyph, style) = if cell >= 1.0 {
                 ("█", lit)
@@ -487,7 +493,6 @@ pub fn spectrum(buf: &mut Buffer, area: Rect, an: &Analyser) {
             for dx in 0..glyph_w {
                 buf[((x + dx) as u16, area.y + y as u16)].set_symbol(glyph).set_style(style);
             }
-            x += bar;
         }
     }
 }
@@ -804,6 +809,26 @@ impl ThumbGrid {
                 };
                 buf[(line.x + x as u16, line.y)].set_symbol("▀").set_fg(at(2 * r)).set_bg(at(2 * r + 1));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The bars must reach both edges of the deck whatever its width, not stop
+    // at the last multiple of NBANDS.
+    #[test]
+    fn spectrum_fills_width() {
+        let mut an = Analyser::new();
+        an.bands = [1.0; NBANDS];
+        for w in [20u16, 32, 63, 64, 97, 150] {
+            let area = Rect::new(0, 0, w, 2);
+            let mut buf = Buffer::empty(area);
+            spectrum(&mut buf, area, &an);
+            assert_eq!(buf[(0, 1)].symbol(), "█", "width {w}");
+            assert_eq!(buf[(w - 1, 1)].symbol(), "█", "width {w}");
         }
     }
 }
