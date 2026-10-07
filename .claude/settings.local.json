@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(grep -n -A2 -B2 \"touche\\\\|Bindings\\\\|keybind\\\\|^-\\\\s*\\\\`\" /Users/gaeldigard/Sites/youtube-tui/README.md)"
-    ]
-  }
-}

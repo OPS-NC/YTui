@@ -1,186 +1,187 @@
 # ytui
 
-Client YouTube en TUI, audio seul, écrit en Rust pour consommer le moins de
-RAM, de CPU et de batterie possible.
+An audio-first YouTube client for the terminal, written in Rust to use as
+little RAM, CPU and battery as possible.
 
-Un onglet de navigateur qui lit YouTube coûte des centaines de mégaoctets.
-ytui garde au repos quelques mégaoctets : pas de runtime, pas de moteur de
-rendu, un tampon de cellules pour l'écran. yt-dlp (métadonnées) et curl
-(vérification du flux) sont lancés comme des processus jetables, et un seul
-ffmpeg assure à la fois la sortie son, l'analyseur et le clip vidéo. Le
-binaire distribué embarque ffmpeg et un moteur JS, et maintient yt-dlp à jour
-tout seul. La RAM
-de tout l'arbre de processus est affichée dans la barre du bas.
+A browser tab playing YouTube costs hundreds of megabytes. ytui idles at a
+few: no runtime, no rendering engine, just a cell buffer for the screen.
+yt-dlp (metadata) and curl (stream probing) run as throw-away processes, and a
+single ffmpeg handles the audio output, the spectrum analyser and the video
+clip at once. The release binaries embed ffmpeg and a JS engine, and keep
+yt-dlp up to date on their own. The RAM of the whole process tree is shown in
+the status bar.
 
-## Binaire autonome
+The interface itself is in French.
 
-Téléchargement : page **Releases** du dépôt GitHub (`OPS-NC/YTui`), avec
-leurs empreintes dans `SHA256SUMS`. Ces binaires — produits par la GitHub
-Action `build` à chaque tag `v*`, ou localement par `scripts/dist.sh` dans
-`dist/` — embarquent tout ce qu'il faut :
+## Standalone binaries
 
-| Fichier               | Pour                                   |
-|-----------------------|----------------------------------------|
-| `ytui-macos-arm64`    | Mac Apple Silicon (M1 à M4)            |
-| `ytui-macos-x86_64`   | Mac Intel                              |
-| `ytui-linux-x86_64`   | Linux PC (Intel / AMD)                 |
-| `ytui-linux-aarch64`  | Linux ARM (Raspberry Pi 4/5, serveurs) |
+Download them from the **Releases** page (`SHA256SUMS` lists their
+checksums). They are built by the `build` GitHub Action on every `v*` tag, or
+locally into `dist/` by `scripts/dist.sh`, and embed everything needed:
 
-- **ffmpeg** et **quickjs** (moteur JS de yt-dlp) sont inclus, et extraits
-  une fois dans `~/.local/share/ytui/bin`. Ce ffmpeg réduit au strict
-  nécessaire pèse ~12 Mo en mémoire, contre ~20 Mo pour un ffmpeg de
-  distribution : il est utilisé de préférence à celui du système.
-- **yt-dlp** est téléchargé au premier lancement (barre d'état : « installation
-  de yt-dlp… »), vérifié par SHA-256, puis mis à jour automatiquement — un
-  contrôle par jour au plus. Il ne peut pas être figé dans le binaire :
-  YouTube change son lecteur toutes les quelques semaines.
+| File                  | For                                   |
+|-----------------------|---------------------------------------|
+| `ytui-macos-arm64`    | Apple Silicon Macs (M1 to M4)         |
+| `ytui-macos-x86_64`   | Intel Macs                            |
+| `ytui-linux-x86_64`   | Linux PCs (Intel / AMD)               |
+| `ytui-linux-aarch64`  | Linux ARM (Raspberry Pi 4/5, servers) |
 
-Il reste à fournir, côté système :
+- **ffmpeg** and **quickjs** (yt-dlp's JS engine) are included and extracted
+  once to `~/.local/share/ytui/bin`. This stripped-down ffmpeg takes ~12 MB of
+  memory, against ~20 MB for a distribution build, so it is preferred over
+  the system one.
+- **yt-dlp** is downloaded on first launch (status bar: "installation de
+  yt-dlp…"), checked against its SHA-256, then updated automatically — at
+  most one check a day. It cannot be frozen into the binary: YouTube changes
+  its player every few weeks.
 
-- `curl` (présent par défaut sur macOS et quasiment toutes les distributions) ;
-- Linux : PulseAudio ou PipeWire (couche Pulse), une glibc ≥ 2.17 (toutes les
-  distributions courantes ; sur Alpine/musl, ytui se rabat sur le ffmpeg du
-  système) et, pour la version de yt-dlp gérée, `python3` ≥ 3.10 ou `unzip`.
+Still required from the system:
 
-macOS : un binaire reçu par AirDrop ou téléchargé est bloqué par Gatekeeper
-(il n'est pas signé par un compte développeur Apple) :
+- `curl` (shipped with macOS and virtually every distribution);
+- Linux: PulseAudio or PipeWire (Pulse layer), glibc ≥ 2.17 (every mainstream
+  distribution; on Alpine/musl ytui falls back to the system's ffmpeg) and,
+  for the managed yt-dlp, `python3` ≥ 3.10 or `unzip`.
+
+```
+chmod +x ytui-linux-x86_64 && ./ytui-linux-x86_64
+```
+
+macOS: a binary received over AirDrop or downloaded is blocked by Gatekeeper
+(it is not signed with an Apple developer account):
 
 ```
 xattr -d com.apple.quarantine ytui-macos-arm64
 chmod +x ytui-macos-arm64 && ./ytui-macos-arm64
 ```
 
-Le clip vidéo demande un terminal truecolor (iTerm2, Ghostty, WezTerm,
-Kitty…), le Terminal d'Apple ne l'est pas.
+The video clip needs a truecolor terminal (Ghostty, Kitty, WezTerm,
+iTerm2…); Apple's Terminal is not one.
 
-### Choisir ses propres outils
+### Bringing your own tools
 
-- un `yt-dlp` placé à côté du binaire est prioritaire ;
-- `YTUI_YTDLP=/chemin/vers/yt-dlp` (ou `YTUI_YTDLP=yt-dlp` pour celui du
-  `PATH`) désactive la copie gérée ;
-- un `deno`, `node` ou `bun` installé est préféré au quickjs embarqué : il
-  résout les challenges YouTube plus vite.
+- a `yt-dlp` next to the binary takes precedence;
+- `YTUI_YTDLP=/path/to/yt-dlp` (or `YTUI_YTDLP=yt-dlp` for the one on `PATH`)
+  turns the managed copy off;
+- an installed `deno`, `node` or `bun` is preferred over the embedded
+  quickjs: it solves YouTube's challenges faster.
 
-## Compiler
+## Building
 
-Prérequis : Rust stable récent, édition 2024 (https://rustup.rs).
+Requires a recent stable Rust, edition 2024 (https://rustup.rs).
 
 ```
-./ytui.sh                # compile si besoin puis lance
+./ytui.sh                # builds if needed, then runs
 cargo build --release    # target/release/ytui
 ```
 
-Sans `bundle/`, le binaire n'embarque rien et utilise le ffmpeg, le moteur JS
-et le yt-dlp du système (ou la copie gérée de yt-dlp) — il faut alors
-installer ffmpeg (`brew install ffmpeg`, `apt install ffmpeg`…).
+Without `bundle/`, the binary embeds nothing and uses the system's ffmpeg,
+JS runtime and yt-dlp (or the managed yt-dlp) — install ffmpeg then
+(`brew install ffmpeg`, `apt install ffmpeg`…).
 
-Binaires autonomes :
+Standalone binaries:
 
 ```
 brew install nasm pkg-config cmake zig
 cargo install --locked cargo-zigbuild
-scripts/dist.sh          # compile ffmpeg + qjs une fois (bundle/), puis dist/
-
-Publier une version : `git tag vX.Y && git push origin vX.Y` — la GitHub
-Action compile les quatre binaires, les teste et crée la release.
+scripts/dist.sh          # builds ffmpeg + qjs once (bundle/), then dist/
 ```
 
-`scripts/build-bundle.sh <cible>` ne reconstruit que ffmpeg et qjs pour une
-cible. Le ffmpeg embarqué est sous LGPL (v2.1+ sur macOS, v3 sur Linux à
-cause de mbedTLS), sans composant GPL ; sources : https://ffmpeg.org/releases/.
+`scripts/build-bundle.sh <target>` only rebuilds ffmpeg and qjs for one
+target. The embedded ffmpeg is LGPL (v2.1+ on macOS, v3 on Linux because of
+mbedTLS) with no GPL component; sources: https://ffmpeg.org/releases/.
+
+Releasing: `git tag vX.Y && git push origin vX.Y` — the GitHub Action builds
+the four binaries, tests them and publishes the release.
 
 ## Usage
 
-| Touche / geste     | Action                                    |
-|--------------------|-------------------------------------------|
-| `/`                | Focus recherche                           |
-| `↑` `↓`            | Historique des recherches (champ actif)   |
-| `Tab` / `Maj+Tab`  | Panneau suivant / précédent               |
-| `Entrée`           | Lire la sélection                         |
-| double-clic        | Lire la ligne (un clic ne fait que sélectionner) |
-| `Espace`           | Pause / reprise                           |
-| `←` `→`            | Reculer / avancer de 10 s                 |
-| `n`                | Piste suivante                            |
-| `+` `-`            | Volume                                    |
-| `v`                | Clip à la place du spectre                |
-| `V` / clic sur l'image | Clip en plein écran                   |
-| `t`                | Grille de miniatures (mode playlist)      |
-| `L`                | Connexion (cookies d'un navigateur)       |
-| `Échap`            | Revenir à la platine                      |
-| `s` / `q`          | Arrêt / quitter (`Ctrl+C` aussi)          |
+| Key / gesture          | Action                                       |
+|------------------------|----------------------------------------------|
+| `/`                    | Focus the search field                       |
+| `↑` `↓`                | Search history (in the search field)         |
+| `Tab` / `Shift+Tab`    | Next / previous panel                        |
+| `Enter`                | Play the selection                           |
+| double click           | Play the row (a single click only selects)   |
+| `Space`                | Pause / resume                               |
+| `←` `→`                | Back / forward 10 s                          |
+| `n`                    | Next track                                   |
+| `+` `-`                | Volume                                       |
+| `v`                    | Video clip in place of the spectrum          |
+| `V` / click the picture | Full-screen clip                            |
+| `t`                    | Thumbnail grid (playlist mode)               |
+| `L`                    | Log in (browser cookies)                     |
+| `Esc`                  | Back to the deck                             |
+| `s` / `q`              | Stop / quit (`Ctrl+C` too)                   |
 
-Les touches du pied de page sont aussi cliquables.
+The footer keys are clickable too.
 
-La recherche accepte aussi une URL ou un ID de vidéo, ou une URL / un ID de
-playlist. L'historique est conservé dans
-`~/.local/share/ytui/search_history` (`XDG_DATA_HOME` respecté).
+The search field also accepts a video URL or ID, or a playlist URL or ID.
+History is kept in `~/.local/share/ytui/search_history` (`XDG_DATA_HOME` is
+honoured).
 
-La colonne des résultats apparaît pendant une recherche et se masque lors de
-la lecture d'une vidéo précise ou d'une playlist.
+The results column shows up during a search and hides when playing a
+specific video or a playlist.
 
-La liste « SUITE » se remplit du mix YouTube de la piste en cours, qui
-s'enchaîne en fin de lecture. Une playlist collée la remplace et la lit dans
-l'ordre jusqu'à « fin de la playlist » ; lire un résultat de recherche revient
-au mode automatique.
+The "SUITE" (up next) list fills with YouTube's mix for the current track,
+which plays on when it ends. A pasted playlist replaces it and plays in order
+until "fin de la playlist"; playing a search result goes back to automatic
+mode.
 
-`v` affiche le clip à la place du spectre dès que le flux porte une piste
-vidéo ; sinon l'analyseur reste à l'écran. L'image est rendue en demi-blocs
-(`▀`, pixel du haut en couleur de texte, pixel du bas en fond), donc un
-terminal truecolor est nécessaire. La même instance de ffmpeg s'en charge sur
-un tube dédié : passer en plein écran ne réouvre pas le flux. Sans clip
-demandé, la piste vidéo n'est jamais décodée.
+`v` shows the clip in place of the spectrum whenever the stream carries a
+video track; otherwise the analyser stays. The picture is drawn with half
+blocks (`▀`, top pixel as text colour, bottom pixel as background), hence the
+truecolor requirement. The same ffmpeg process feeds it over a dedicated
+pipe: going full screen does not reopen the stream. Unless the clip is asked
+for, the video track is never decoded.
 
-En lecture de playlist, `t` remplace la liste « SUITE » par une grille de
-toute la playlist, chaque miniature décodée par ffmpeg à la volée directement
-à la taille de sa cellule (~1 ko chacune), uniquement pour ce qui est visible
-à l'écran. Flèches pour déplacer la sélection (surlignée d'une barre ambrée
-bien contrastée), molette ou Origine/Fin/Page préc./Page suiv. pour faire
-défiler, Entrée ou double-clic pour lire — un simple clic ne fait que
-sélectionner. Un second `t` revient à la liste texte.
+In playlist mode, `t` swaps the "SUITE" list for a grid of the whole
+playlist, each thumbnail decoded by ffmpeg on the fly straight at its cell's
+size (~1 kB each), only for what is on screen. Arrows move the selection
+(highlighted by a high-contrast amber bar), the wheel or Home/End/PgUp/PgDn
+scroll, Enter or a double click plays — a single click only selects. A
+second `t` goes back to the text list.
 
-## Authentification
+## Authentication
 
-Par défaut ytui ne s'authentifie pas — les vidéos publiques n'en ont pas
-besoin, et lire les cookies d'un navigateur à chaque recherche serait
-surprenant (invite du trousseau, base verrouillée si le navigateur est
-ouvert, latence en plus). Pour les vidéos limitées par âge, réservées aux
-membres ou autrement liées à un compte, appuyez sur `L` dans l'app : chaque
-appui passe au navigateur suivant (`firefox`, `chrome`, `chromium`, `edge`,
-`brave`, `opera`, `vivaldi`, `safari`, `whale`), et un dernier appui revient à
-« pas connecté ». L'état actif reste affiché dans la barre du bas
-(`connecté (firefox)`) tant qu'il l'est.
+By default ytui does not authenticate — public videos don't need it, and
+reading a browser's cookies on every search would be surprising (a keychain
+prompt, a locked database while the browser is open, extra latency). For
+age-restricted, members-only or otherwise account-bound videos, press `L` in
+the app: each press moves to the next browser (`firefox`, `chrome`,
+`chromium`, `edge`, `brave`, `opera`, `vivaldi`, `safari`, `whale`), and one
+last press goes back to "not logged in". The active state stays visible in
+the status bar (`connecté (firefox)`) for as long as it is on.
 
-Raccourci pour un navigateur simple : `./ytui.sh --firefox` (ou `--chrome`,
-`--edge`, etc.) équivaut à positionner `YTUI_COOKIES_FROM_BROWSER` avant le
-lancement.
+Shortcut for a plain browser: `./ytui.sh --firefox` (or `--chrome`, `--edge`,
+etc.) is the same as setting `YTUI_COOKIES_FROM_BROWSER` before launch.
 
-Pour un profil ou un trousseau précis (`chrome:Profile 1`, `firefox+kwallet`),
-positionnez `YTUI_COOKIES_FROM_BROWSER` avant de lancer l'app — même syntaxe
-que l'option `--cookies-from-browser` de yt-dlp. C'est le point de départ du
-cycle de `L`, qui bascule ensuite sur les noms simples ci-dessus.
+For a specific profile or keyring (`chrome:Profile 1`, `firefox+kwallet`),
+set `YTUI_COOKIES_FROM_BROWSER` before starting the app — same syntax as
+yt-dlp's `--cookies-from-browser`. It is the starting point of the `L`
+cycle, which then switches between the plain names above.
 
 ```
 ./ytui.sh --firefox
 YTUI_COOKIES_FROM_BROWSER="chrome:Profile 1" ./ytui.sh
 ```
 
-ytui lit alors les cookies comme le ferait le navigateur, pour les requêtes
-yt-dlp de recherche, playlist, suggestions et, en dernier recours seulement,
-de résolution du flux (les stratégies anonymes restent essayées d'abord).
+ytui then reads the cookies as the browser would, for yt-dlp's search,
+playlist and suggestion requests and, only as a last resort, for stream
+resolution (the anonymous strategies are still tried first).
 
-Si un navigateur est déjà positionné au lancement, la colonne des résultats
-affiche directement la page d'accueil YouTube (« Recommandé pour vous ») au
-lieu de rester vide en attendant une recherche. Lancer une vraie recherche
-remplace ces suggestions normalement ; se connecter en cours de session avec
-`L` ne les recharge pas — c'est uniquement le comportement au démarrage.
+When a browser is already set at launch, the results column shows the
+YouTube home page ("Recommandé pour vous") instead of staying empty until a
+search. Running an actual search replaces those suggestions as usual;
+logging in mid-session with `L` doesn't reload them — it is launch-time
+behaviour only.
 
-## Développement
+## Development
 
 ```
-cargo build --release   # binaire optimisé (LTO, strip, panic=abort)
-cargo test              # hors-ligne : parsing, mise en page, extraction ffmpeg/qjs
-cargo test -- --ignored # installation de yt-dlp (télécharge depuis GitHub)
+cargo build --release   # optimised binary (LTO, strip, panic=abort)
+cargo test              # offline: parsing, layout, ffmpeg/qjs extraction
+cargo test -- --ignored # managed yt-dlp install + https via ffmpeg (network, never YouTube)
 cargo clippy
 ```
 
-Voir [AGENTS.md](AGENTS.md) pour l'architecture et les règles du projet.
+See [AGENTS.md](AGENTS.md) for the architecture and the project's rules.

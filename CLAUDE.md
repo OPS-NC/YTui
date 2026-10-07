@@ -80,7 +80,8 @@ auto mode. Any new playback path must decide explicitly whether it keeps or clea
 ## Conventions
 
 - User-facing strings are French, terse (`"lecture"`, `"fin de la playlist"`). Code/identifiers/most
-  comments are English; existing French comments stay French — match the local file.
+  comments and all docs (README, AGENTS.md, CLAUDE.md, release notes) are English; existing French
+  comments stay French — match the local file.
 - Comments explain *why*, not *what* — this codebase carries a lot of rationale about YouTube behaviour,
   403s, PO tokens, ffmpeg quirks. Preserve and update them, don't strip them.
 - Clippy-clean, no `unwrap` on user- or network-controlled data, plain structs for records.

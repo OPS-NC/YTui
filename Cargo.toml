@@ -2,8 +2,7 @@
 name = "ytui"
 version = "0.1.0"
 edition = "2024"
-description = "Client YouTube en TUI, audio seul, frugal en RAM"
-license = "MIT"
+description = "Audio-first YouTube client for the terminal, light on RAM"
 
 # The whole dependency budget. ratatui is used only for its cell buffer and
 # diffing terminal backend (no widget crate, no layout solver): every widget
