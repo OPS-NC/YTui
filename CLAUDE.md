@@ -86,4 +86,5 @@ auto mode. Any new playback path must decide explicitly whether it keeps or clea
 - Clippy-clean, no `unwrap` on user- or network-controlled data, plain structs for records.
 - Small, surgical diffs — don't reformat untouched code. Don't touch `target/`, `.idea/`.
   Update `README.md` when a key binding or user-visible behaviour changes.
-- Commits: Conventional Commits, scope `ytui`, subject ≤50 chars. Commit only when asked.
+- Commits and release notes are written in English. Conventional Commits, scope `ytui`, subject
+  ≤50 chars.

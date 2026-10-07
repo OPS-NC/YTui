@@ -171,5 +171,5 @@ keeps or clears the queue.
 - Small, surgical diffs. Don't reformat untouched code.
 - Don't touch `target/`, `.idea/`.
 - Update `README.md` when a key binding or user-visible behaviour changes.
-- Commits: Conventional Commits, scope `ytui`, subject ≤50 chars, French or
-  English body only when the *why* isn't obvious. Commit only when asked.
+- Commits and release notes are written in English. Conventional Commits,
+  scope `ytui`, subject ≤50 chars, body only when the *why* isn't obvious.
