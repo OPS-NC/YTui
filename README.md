@@ -17,15 +17,46 @@ The interface itself is in French.
 
 ## Install
 
-With [Homebrew](https://brew.sh) (macOS and Linux):
+### Homebrew (recommended — macOS and Linux)
 
 ```
 brew install ops-nc/tap/ytui
+ytui
 ```
 
 The formula ([OPS-NC/homebrew-tap](https://github.com/OPS-NC/homebrew-tap))
-installs the standalone binary below and follows new releases on its own;
-upgrade with `brew update && brew upgrade ytui`.
+installs the standalone binary and follows new releases on its own. Upgrade
+with `brew update && brew upgrade ytui`.
+
+### Linux without Homebrew
+
+Grab the binary for your architecture (`x86_64` or `aarch64`, picked by
+`uname -m`) from the latest release into `~/.local/bin`:
+
+```
+mkdir -p ~/.local/bin
+wget -O ~/.local/bin/ytui "https://github.com/OPS-NC/YTui/releases/latest/download/ytui-linux-$(uname -m)"
+chmod +x ~/.local/bin/ytui
+ytui
+```
+
+Most distributions put `~/.local/bin` on the `PATH`; if `ytui` is not found,
+add `export PATH="$HOME/.local/bin:$PATH"` to your shell profile. Run the same
+commands again to upgrade. `curl -fLo` works in place of `wget -O`.
+
+### macOS without Homebrew
+
+```
+mkdir -p ~/.local/bin
+curl -fLo ~/.local/bin/ytui "https://github.com/OPS-NC/YTui/releases/latest/download/ytui-macos-$(uname -m)"
+chmod +x ~/.local/bin/ytui
+```
+
+`~/.local/bin` is not on macOS's default `PATH`: add
+`export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc`. Downloaded this way the
+binary is not quarantined; one fetched with a browser
+or received over AirDrop needs `xattr -d com.apple.quarantine <file>` first
+(it is not signed with an Apple developer account).
 
 ## Standalone binaries
 
@@ -55,18 +86,6 @@ Still required from the system:
 - Linux: PulseAudio or PipeWire (Pulse layer), glibc ≥ 2.17 (every mainstream
   distribution; on Alpine/musl ytui falls back to the system's ffmpeg) and,
   for the managed yt-dlp, `python3` ≥ 3.10 or `unzip`.
-
-```
-chmod +x ytui-linux-x86_64 && ./ytui-linux-x86_64
-```
-
-macOS: a binary received over AirDrop or downloaded is blocked by Gatekeeper
-(it is not signed with an Apple developer account):
-
-```
-xattr -d com.apple.quarantine ytui-macos-arm64
-chmod +x ytui-macos-arm64 && ./ytui-macos-arm64
-```
 
 The video clip needs a truecolor terminal (Ghostty, Kitty, WezTerm,
 iTerm2…); Apple's Terminal is not one.
