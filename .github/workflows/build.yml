@@ -127,11 +127,19 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && chmod +x ytui-* && sha256sum ytui-* > SHA256SUMS && cat SHA256SUMS
+      # .github/notes/<tag>.md (what changed) on top of the install notes
+      # shared by every release.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes="$RUNNER_TEMP/notes.md"
+          if [ -f ".github/notes/$GITHUB_REF_NAME.md" ]; then
+            cat ".github/notes/$GITHUB_REF_NAME.md" .github/release-notes.md > "$notes"
+          else
+            cp .github/release-notes.md "$notes"
+          fi
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "ytui $GITHUB_REF_NAME" \
-            --notes-file .github/release-notes.md \
+            --notes-file "$notes" \
             --verify-tag

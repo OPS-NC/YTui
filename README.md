@@ -121,8 +121,9 @@ scripts/dist.sh          # builds ffmpeg + qjs once (bundle/), then dist/
 target. The embedded ffmpeg is LGPL (v2.1+ on macOS, v3 on Linux because of
 mbedTLS) with no GPL component; sources: https://ffmpeg.org/releases/.
 
-Releasing: `git tag vX.Y && git push origin vX.Y` — the GitHub Action builds
-the four binaries, tests them and publishes the release. The Homebrew tap
+Releasing: write what changed in `.github/notes/vX.Y.md`, bump `Cargo.toml`,
+then `git tag vX.Y && git push origin vX.Y` — the GitHub Action builds the
+four binaries, tests them and publishes the release with those notes on top. The Homebrew tap
 picks the new release up within 3 hours (or right away with
 `gh workflow run update-ytui.yml --repo OPS-NC/homebrew-tap`).
 
