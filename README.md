@@ -1,3 +1,5 @@
+<p align="center"><img src=".github/logo.webp" alt="ytui logo" width="200"></p>
+
 # ytui
 
 > Inspired by [gaeldigard/youtube-tui](https://gitlab.com/gaeldigard/youtube-tui).
