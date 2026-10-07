@@ -15,6 +15,18 @@ the status bar.
 
 The interface itself is in French.
 
+## Install
+
+With [Homebrew](https://brew.sh) (macOS and Linux):
+
+```
+brew install ops-nc/tap/ytui
+```
+
+The formula ([OPS-NC/homebrew-tap](https://github.com/OPS-NC/homebrew-tap))
+installs the standalone binary below and follows new releases on its own;
+upgrade with `brew update && brew upgrade ytui`.
+
 ## Standalone binaries
 
 Download them from the **Releases** page (`SHA256SUMS` lists their
@@ -93,7 +105,9 @@ target. The embedded ffmpeg is LGPL (v2.1+ on macOS, v3 on Linux because of
 mbedTLS) with no GPL component; sources: https://ffmpeg.org/releases/.
 
 Releasing: `git tag vX.Y && git push origin vX.Y` — the GitHub Action builds
-the four binaries, tests them and publishes the release.
+the four binaries, tests them and publishes the release. The Homebrew tap
+picks the new release up within 3 hours (or right away with
+`gh workflow run update-ytui.yml --repo OPS-NC/homebrew-tap`).
 
 ## Usage
 
