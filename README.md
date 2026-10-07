@@ -1,5 +1,7 @@
 # ytui
 
+> Inspired by [gaeldigard/youtube-tui](https://gitlab.com/gaeldigard/youtube-tui).
+
 An audio-first YouTube client for the terminal, written in Rust to use as
 little RAM, CPU and battery as possible.
 
