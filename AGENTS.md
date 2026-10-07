@@ -60,7 +60,9 @@ state; workers report back over an `mpsc` channel.
 | `src/meminfo.rs` | RSS of the process tree (`/proc` on Linux, libproc on macOS) |
 | `build.rs` | embeds `bundle/<target>/{ffmpeg,qjs}` when present (`cfg(bundled)`) |
 | `scripts/build-bundle.sh` | builds the minimal ffmpeg + qjs for one target into `bundle/` |
-| `scripts/dist.sh` | self-contained binaries for macOS arm64 / Linux x86_64 / aarch64 into `dist/` |
+| `scripts/dist.sh` | self-contained binaries (macOS arm64/x86_64, Linux x86_64/aarch64) into `dist/`; `scripts/dist.sh <target>` for one |
+| `.github/workflows/build.yml` | CI: clippy + tests, the 4 binaries + smoke tests, GitHub release on `v*` tags |
+| `.github/notes/vX.Y.md` | "What's new" of each release, put above `.github/release-notes.md` (shared install notes) |
 | `ytui.sh` | launcher; builds the release binary when needed |
 
 ## Hard rules
@@ -68,11 +70,13 @@ state; workers report back over an `mpsc` channel.
 Each of these is the prime directive made concrete. Don't relax one for
 convenience.
 
-1. **Never test by running the app or hitting the network.** No `yt-dlp`
-   calls, no playback, no `cargo run`. `cargo build`, `cargo clippy` and
-   `cargo test` are fine — tests must stay offline (pure parsing, layout
-   rendered into an in-memory `Buffer`). Hand testing to the user: state
-   exactly what to try.
+1. **Never test by running the app or hitting YouTube.** No `yt-dlp` calls,
+   no playback, no `cargo run`. `cargo build`, `cargo clippy` and `cargo test`
+   are fine; default tests stay offline (parsing, layout rendered into an
+   in-memory `Buffer`, embedded-tool extraction). Network tests are
+   `#[ignore]` and only reach GitHub or Wikimedia, never YouTube. Running a
+   built binary on local test files (or in a Debian container for Linux) is
+   fine. Hand real testing to the user: state exactly what to try.
 2. **No in-process yt-dlp, HTTP or TLS.** yt-dlp is invoked as a *binary* in a
    throw-away subprocess on purpose — it allocates ~60 MB parsing a page and
    that memory must go back to the OS. Same for the 8 kB stream probe: a curl
@@ -168,13 +172,67 @@ sound in one URL, one process.
 Keep that invariant: any new playback path must decide explicitly whether it
 keeps or clears the queue.
 
+## Adding a feature: where things go
+
+- **A key binding**: the `on_key` match in `app.rs` (and the focused widget's
+  handler if it should be consumed there), an `Action` variant + `run()` arm,
+  the footer `BINDINGS` table if it deserves a slot, the README key table.
+  Remember that a focused search field types printable keys instead.
+- **A colour**: a new field on `Theme` filled in all three themes
+  (`DEFAULT`, `DARK`, `WHITE`), read via `theme::get()`.
+- **Blocking work**: an `exec::spawn` worker, a `Msg` variant carrying a
+  token of its request group, a stale check where the reply is handled.
+- **Something animated**: make `animating()` true only while it moves, set
+  `dirty` only when the frame actually changes; idle must stay at 1 Hz.
+- **A new playback path**: decide explicitly whether it keeps or clears the
+  queue (see the queue model above).
+- **User-facing text**: English, terse, lowercase-ish for statuses.
+- **Layout**: computed in `draw*()` only; store any rect you hit-test later.
+- **Tests**: extend the layout test in `app.rs` (render into a `Buffer` and
+  assert on the text) for anything visible.
+
 ## Workflow
 
-- Branches: `feat/<topic>` or `fix/<topic>` off `main`, merged back into
-  `main` when done (then deleted). `main` is the default branch; releases
-  are tags `vX.Y` on `main`, cut only when the maintainer asks.
-- Small, surgical diffs. Don't reformat untouched code.
-- Don't touch `target/`, `.idea/`.
-- Update `README.md` when a key binding or user-visible behaviour changes.
-- Commits and release notes are written in English. Conventional Commits,
-  scope `ytui`, subject ≤50 chars, body only when the *why* isn't obvious.
+Repositories: `origin` is GitHub `OPS-NC/YTui` (public). `gitlab` is the
+legacy remote of the Python version — never push there. The Homebrew tap is
+`OPS-NC/homebrew-tap`.
+
+For every change:
+
+1. Branch `feat/<topic>` or `fix/<topic>` off an up-to-date `main`.
+2. Make it, with small surgical diffs (don't reformat untouched code, don't
+   touch `target/`, `.idea/`); update `README.md` when a key binding or
+   user-visible behaviour changes, and these docs when a rule changes.
+3. Verify: `cargo clippy --all-targets -- -D warnings` and `cargo test`
+   (the CI runs both; tests share the global theme, so they must not depend
+   on test order).
+4. Commit in English: `[Claude] <type>(ytui): <subject>` — Conventional
+   Commits types (`feat`, `fix`, `perf`, `docs`, `chore`, `ci`…), subject
+   ≤50 chars, a body explaining the *why* when it isn't obvious. Stage
+   files explicitly, never secrets.
+5. Push the branch, merge it into `main` with `git merge --no-ff`, push
+   `main`, delete the branch locally and on `origin`.
+6. Rebuild the Linux x86_64 binary: `scripts/dist.sh x86_64-unknown-linux-musl`
+   (→ `dist/ytui-linux-x86_64`, not committed).
+
+Releases are cut **only when the maintainer asks**:
+
+1. Write `.github/notes/vX.Y.md` (English, "What's new in vX.Y", what
+   changed since the last tag — `git log vPREV..HEAD`).
+2. Bump `version` in `Cargo.toml`, commit, merge into `main` as above.
+3. `git tag -a vX.Y -m "…" && git push origin vX.Y`. The `build` workflow
+   builds and smoke-tests the 4 binaries and publishes the GitHub release
+   with `SHA256SUMS` and the notes.
+4. Once the release exists, refresh the Homebrew formula right away (it
+   otherwise follows within 3 hours):
+   `gh workflow run update-ytui.yml --repo OPS-NC/homebrew-tap`. Users then
+   get it with `brew update && brew upgrade ytui`.
+
+The tap pulls instead of being pushed to because the OPS-NC organisation
+disallows deploy keys: its own workflow reads YTui's latest release and
+regenerates `Formula/ytui.rb` (`scripts/update-ytui.sh` in the tap).
+
+Building the bundles locally needs `nasm`, `pkg-config`, `cmake`, `zig` and
+`cargo-zigbuild` (`brew install nasm pkg-config cmake zig`,
+`cargo install --locked cargo-zigbuild`); Linux binaries can be checked in a
+`debian:bookworm-slim` container with `libpulse0` (Docker/OrbStack).
