@@ -1,5 +1,11 @@
 <p align="center"><img src=".github/logo.webp" alt="ytui logo" width="200"></p>
 
+<p align="center">
+  <a href="https://github.com/OPS-NC/YTui/releases/latest"><img src="https://img.shields.io/github/v/release/OPS-NC/YTui?label=release&color=e05d44" alt="Release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" /></a>
+  <a href="https://github.com/OPS-NC/YTui"><img src="https://img.shields.io/badge/Rust-terminal-dea584" alt="Rust terminal" /></a>
+</p>
+
 # ytui
 
 > Inspired by [gaeldigard/youtube-tui](https://gitlab.com/gaeldigard/youtube-tui).
@@ -235,3 +241,7 @@ cargo clippy
 ```
 
 See [AGENTS.md](AGENTS.md) for the architecture and the project's rules.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
