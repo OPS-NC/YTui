@@ -10,9 +10,9 @@ truth for architecture, hard rules, and conventions here. Read it in full before
 - **Prime directive: minimize RAM/CPU/battery.** This app exists specifically to be lighter than a browser
   tab playing YouTube; it was rewritten from Python/Textual to Rust for that reason. Weigh every change
   against that; a change that makes the UI nicer but the process fatter is a regression.
-- **Never run the app or hit the network to test.** No `yt-dlp` calls, no playback, no `cargo run`.
-  `cargo build`, `cargo clippy` and offline `cargo test` are fine. Hand hands-on testing to the user with
-  exact steps to try.
+- **Never run the app or hit YouTube to test.** No `yt-dlp` calls, no playback, no `cargo run`.
+  `cargo build`, `cargo clippy` and `cargo test` are fine (network tests are `#[ignore]`, GitHub/Wikimedia
+  only). Hand hands-on testing to the user with exact steps to try.
 - **No in-process yt-dlp, HTTP or TLS** — yt-dlp and the stream probe (curl) run as throw-away
   subprocesses so their allocations go back to the OS. See the top of `src/sources.rs`.
 - **One ffmpeg process** for playback (sink audio + analyser PCM + optional video tap on fd 3).
@@ -35,10 +35,23 @@ install/update yt-dlp themselves (`src/tools.rs`). Still required on the system:
 PulseAudio/PipeWire + glibc ≥ 2.17. Without `bundle/`, the system's ffmpeg / JS runtime are used.
 
 ```
-cargo test -- --ignored   # managed yt-dlp install (downloads from GitHub, not YouTube)
-scripts/dist.sh           # needs nasm, pkg-config, cmake, zig, cargo-zigbuild
-git tag vX.Y && git push origin vX.Y   # .github/workflows/build.yml builds, tests and releases
+cargo clippy --all-targets -- -D warnings   # what CI runs
+cargo test -- --ignored   # network tests: yt-dlp install + https via ffmpeg (GitHub/Wikimedia, never YouTube)
+scripts/dist.sh x86_64-unknown-linux-musl   # rebuild dist/ytui-linux-x86_64 after every change
+scripts/dist.sh           # all 4 binaries; needs nasm, pkg-config, cmake, zig, cargo-zigbuild
 ```
+
+## Working routine (summary — details in AGENTS.md § Workflow)
+
+- Repos: `origin` = GitHub `OPS-NC/YTui` (public, default branch `main`); `gitlab` = legacy Python remote,
+  never push there; Homebrew tap = `OPS-NC/homebrew-tap`.
+- Every change: branch `feat/<topic>` or `fix/<topic>` off `main` → clippy (`-D warnings`) + tests → commit
+  in English `[Claude] <type>(ytui): <subject>` → push branch → `git merge --no-ff` into `main` → push
+  `main` → delete the branch (local + origin) → `scripts/dist.sh x86_64-unknown-linux-musl`. No need to ask.
+- Releases only when the maintainer asks: `.github/notes/vX.Y.md` (English "What's new"), bump
+  `Cargo.toml`, merge, `git tag -a vX.Y && git push origin vX.Y` (CI publishes the release), then
+  `gh workflow run update-ytui.yml --repo OPS-NC/homebrew-tap` so `brew upgrade ytui` sees it at once.
+- Where a new key binding, colour, worker or animation goes: AGENTS.md § "Adding a feature".
 
 Crates (the whole budget — AGENTS.md rule 5): `crossterm`, `ratatui-core`, `ratatui-crossterm`, `libc`,
 `unicode-width`, all with default features off where possible.
@@ -86,7 +99,4 @@ auto mode. Any new playback path must decide explicitly whether it keeps or clea
 - Clippy-clean, no `unwrap` on user- or network-controlled data, plain structs for records.
 - Small, surgical diffs — don't reformat untouched code. Don't touch `target/`, `.idea/`.
   Update `README.md` when a key binding or user-visible behaviour changes.
-- Branches: `feat/<topic>` / `fix/<topic>` off `main`, merged into `main`, then deleted. Releases are
-  `vX.Y` tags on `main`, only when asked.
-- Commits and release notes are written in English. Conventional Commits, scope `ytui`, subject
-  ≤50 chars.
+- Branches, commits and releases: see "Working routine" above.
