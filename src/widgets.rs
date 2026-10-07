@@ -255,7 +255,7 @@ impl TextInput {
         } else {
             (t::BORDER, t::SEARCH_BG, t::BORDER_TITLE)
         };
-        tall_box(buf, area, border, bg, t::SCREEN_BG, Some(("R E C H E R C H E", title)));
+        tall_box(buf, area, border, bg, t::SCREEN_BG, Some(("S E A R C H", title)));
         let mut view = inner(area);
         view.x += 1; // Input's own `padding: 0 1`
         view.width = view.width.saturating_sub(2);
@@ -503,7 +503,7 @@ pub fn seek_bar(buf: &mut Buffer, area: Rect, pos: f64, dur: f64, paused: bool) 
     let ratio = if dur > 0.0 { (pos / dur).min(1.0) } else { 0.0 };
     let head = if paused { "❙❙" } else { "▶ " };
     let pos_s = fmt_time(pos);
-    let right = format!("  {}", if dur > 0.0 { fmt_time(dur) } else { "DIRECT".into() });
+    let right = format!("  {}", if dur > 0.0 { fmt_time(dur) } else { "LIVE".into() });
     let track = width.saturating_sub(2 + pos_s.len() + right.len() + 4).max(4);
     let done = (ratio * track as f64) as usize;
     let pos_txt = format!("  {pos_s}  ");
@@ -735,7 +735,7 @@ impl ThumbGrid {
     pub fn render(&mut self, buf: &mut Buffer, area: Rect, focused: bool, videos: &[Video], playing: Option<&str>) {
         let (border, title) =
             if focused { (t::BORDER_FOCUS, t::BORDER_TITLE_FOCUS) } else { (t::BORDER, t::BORDER_TITLE) };
-        tall_box(buf, area, border, t::PANEL_BG, t::SCREEN_BG, Some(("S U I T E   ·   miniatures", title)));
+        tall_box(buf, area, border, t::PANEL_BG, t::SCREEN_BG, Some(("U P   N E X T   ·   thumbnails", title)));
         let mut view = inner(area);
         if view.width == 0 || view.height == 0 {
             return;
@@ -755,7 +755,7 @@ impl ThumbGrid {
         self.scroll_y = self.scroll_y.min(self.max_scroll(videos.len()));
 
         if videos.is_empty() {
-            let text = "aucune piste suivante";
+            let text = "nothing up next";
             let pad = (view.width as usize).saturating_sub(text.len()) / 2;
             spans(buf, view.x + pad as u16, view.y + view.height / 2, view.width, &[(text, fg(t::THUMB_EMPTY))]);
             return;

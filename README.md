@@ -13,8 +13,6 @@ clip at once. The release binaries embed ffmpeg and a JS engine, and keep
 yt-dlp up to date on their own. The RAM of the whole process tree is shown in
 the status bar.
 
-The interface itself is in French.
-
 ## Install
 
 ### Homebrew (recommended — macOS and Linux)
@@ -75,7 +73,7 @@ locally into `dist/` by `scripts/dist.sh`, and embed everything needed:
   once to `~/.local/share/ytui/bin`. This stripped-down ffmpeg takes ~12 MB of
   memory, against ~20 MB for a distribution build, so it is preferred over
   the system one.
-- **yt-dlp** is downloaded on first launch (status bar: "installation de
+- **yt-dlp** is downloaded on first launch (status bar: "installing
   yt-dlp…"), checked against its SHA-256, then updated automatically — at
   most one check a day. It cannot be frozen into the binary: YouTube changes
   its player every few weeks.
@@ -157,9 +155,9 @@ honoured).
 The results column shows up during a search and hides when playing a
 specific video or a playlist.
 
-The "SUITE" (up next) list fills with YouTube's mix for the current track,
+The "UP NEXT" list fills with YouTube's mix for the current track,
 which plays on when it ends. A pasted playlist replaces it and plays in order
-until "fin de la playlist"; playing a search result goes back to automatic
+until "end of playlist"; playing a search result goes back to automatic
 mode.
 
 `v` shows the clip in place of the spectrum whenever the stream carries a
@@ -169,7 +167,7 @@ truecolor requirement. The same ffmpeg process feeds it over a dedicated
 pipe: going full screen does not reopen the stream. Unless the clip is asked
 for, the video track is never decoded.
 
-In playlist mode, `t` swaps the "SUITE" list for a grid of the whole
+In playlist mode, `t` swaps the "UP NEXT" list for a grid of the whole
 playlist, each thumbnail decoded by ffmpeg on the fly straight at its cell's
 size (~1 kB each), only for what is on screen. Arrows move the selection
 (highlighted by a high-contrast amber bar), the wheel or Home/End/PgUp/PgDn
@@ -185,7 +183,7 @@ age-restricted, members-only or otherwise account-bound videos, press `L` in
 the app: each press moves to the next browser (`firefox`, `chrome`,
 `chromium`, `edge`, `brave`, `opera`, `vivaldi`, `safari`, `whale`), and one
 last press goes back to "not logged in". The active state stays visible in
-the status bar (`connecté (firefox)`) for as long as it is on.
+the status bar (`logged in (firefox)`) for as long as it is on.
 
 Shortcut for a plain browser: `./ytui.sh --firefox` (or `--chrome`, `--edge`,
 etc.) is the same as setting `YTUI_COOKIES_FROM_BROWSER` before launch.
@@ -205,7 +203,7 @@ playlist and suggestion requests and, only as a last resort, for stream
 resolution (the anonymous strategies are still tried first).
 
 When a browser is already set at launch, the results column shows the
-YouTube home page ("Recommandé pour vous") instead of staying empty until a
+YouTube home page ("Recommended for you") instead of staying empty until a
 search. Running an actual search replaces those suggestions as usual;
 logging in mid-session with `L` doesn't reload them — it is launch-time
 behaviour only.

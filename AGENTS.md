@@ -117,10 +117,10 @@ convenience.
 
 ## Conventions
 
-- **Language:** user-facing strings are French, lowercase-ish, terse
-  (`"lecture"`, `"fin de la playlist"`). Code, identifiers, most comments and
-  all documentation (README, AGENTS.md, CLAUDE.md, release notes) are
-  English. Existing French comments stay French — match the local file.
+- **Language:** everything is English — user-facing strings (lowercase-ish,
+  terse: `"playing"`, `"end of playlist"`), code, comments and all
+  documentation (README, AGENTS.md, CLAUDE.md, release notes). No French
+  left anywhere in the interface.
 - **Comments explain *why*, not *what*.** The codebase is dense with
   rationale comments about YouTube's behaviour, 403s, PO tokens, ffmpeg
   quirks. Preserve them. If you change the reasoning, update the comment.
@@ -154,7 +154,7 @@ sound in one URL, one process.
 
 ## Queue / playlist model
 
-`suggestions` (the "SUITE" panel) is dual-purpose:
+`suggestions` (the "UP NEXT" panel) is dual-purpose:
 
 - **auto mode** (default): refilled from `sources::related()` on every track.
 - **playlist mode**: `queue` non-empty. Pasting a playlist URL/ID loads it,

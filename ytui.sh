@@ -6,11 +6,11 @@ cd "$(dirname "$0")"
 
 if command -v cargo >/dev/null 2>&1; then
     if [ ! -x target/release/ytui ]; then
-        echo "Première exécution : compilation…"
+        echo "First run: building…"
     fi
     cargo build --release --quiet
 elif [ ! -x target/release/ytui ]; then
-    echo "cargo introuvable — installez Rust : https://rustup.rs" >&2
+    echo "cargo not found — install Rust: https://rustup.rs" >&2
     exit 1
 fi
 

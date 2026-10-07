@@ -255,10 +255,10 @@ fn unzip_tool() -> Option<&'static str> {
 fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
     let mut cmd = Command::new("curl");
     cmd.args(["-fsSL", "--retry", "2", "--max-time", "300"]).args(args);
-    let out = exec::run(cmd, Duration::from_secs(320)).map_err(|e| format!("curl : {e}"))?;
+    let out = exec::run(cmd, Duration::from_secs(320)).map_err(|e| format!("curl: {e}"))?;
     if !out.success {
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("curl : {}", err.trim()));
+        return Err(format!("curl: {}", err.trim()));
     }
     Ok(out.stdout)
 }
@@ -270,7 +270,7 @@ fn latest_tag() -> Result<String, String> {
     url.rsplit_once("/tag/")
         .map(|(_, tag)| tag.trim().to_string())
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| "version de yt-dlp introuvable".into())
+        .ok_or_else(|| "cannot find the latest yt-dlp version".into())
 }
 
 fn sha256(path: &Path) -> Option<String> {
@@ -309,7 +309,7 @@ pub fn maintain_ytdlp(say: impl Fn(String)) {
     }
     let tag = match latest_tag() {
         Ok(tag) => tag,
-        Err(e) if installed.is_none() => return say(format!("installation de yt-dlp impossible — {e}")),
+        Err(e) if installed.is_none() => return say(format!("cannot install yt-dlp — {e}")),
         Err(_) => return, // offline: keep the copy we have, try again next launch
     };
     let _ = std::fs::write(&stamp, &tag);
@@ -317,15 +317,15 @@ pub fn maintain_ytdlp(say: impl Fn(String)) {
         return;
     }
     let Some((asset, kind)) = pick_asset() else {
-        return say("installation de yt-dlp impossible — ni python ≥ 3.10 ni outil de décompression".into());
+        return say("cannot install yt-dlp — needs python ≥ 3.10 or an unzip tool".into());
     };
     say(match &installed {
-        None => format!("installation de yt-dlp {tag}…"),
-        Some(old) => format!("mise à jour de yt-dlp {old} → {tag}…"),
+        None => format!("installing yt-dlp {tag}…"),
+        Some(old) => format!("updating yt-dlp {old} → {tag}…"),
     });
     match install(&dir, &tag, &asset, kind) {
-        Ok(()) => say(format!("yt-dlp {tag} installé")),
-        Err(e) => say(format!("yt-dlp {tag} non installé — {e}")),
+        Ok(()) => say(format!("yt-dlp {tag} installed")),
+        Err(e) => say(format!("yt-dlp {tag} not installed — {e}")),
     }
 }
 
@@ -358,12 +358,12 @@ fn stage(staging: &Path, tag: &str, asset: &str, kind: Kind) -> Result<(), Strin
         .filter_map(|l| l.split_once(char::is_whitespace))
         .find(|(_, name)| name.trim().trim_start_matches('*') == asset)
         .map(|(hash, _)| hash.to_ascii_lowercase())
-        .ok_or("somme de contrôle absente")?;
+        .ok_or("checksum missing")?;
     let file = staging.join(asset);
     let path = file.to_string_lossy().into_owned();
     curl(&["-o", &path, &format!("{base}/{asset}")])?;
     if sha256(&file).as_deref() != Some(expected.as_str()) {
-        return Err("somme de contrôle invalide".into());
+        return Err("checksum mismatch".into());
     }
     let entry = match kind {
         Kind::Zipapp => {
@@ -373,7 +373,7 @@ fn stage(staging: &Path, tag: &str, asset: &str, kind: Kind) -> Result<(), Strin
         }
         Kind::Frozen => {
             let dest = staging.to_string_lossy().into_owned();
-            let tool = unzip_tool().ok_or("aucun outil de décompression")?;
+            let tool = unzip_tool().ok_or("no unzip tool")?;
             let mut cmd = Command::new(tool);
             match tool {
                 "ditto" => cmd.args(["-x", "-k", &path, &dest]),
@@ -382,14 +382,14 @@ fn stage(staging: &Path, tag: &str, asset: &str, kind: Kind) -> Result<(), Strin
             };
             let out = exec::run(cmd, Duration::from_secs(120)).map_err(|e| e.to_string())?;
             if !out.success {
-                return Err("décompression échouée".into());
+                return Err("unzip failed".into());
             }
             let _ = std::fs::remove_file(&file);
             asset.trim_end_matches(".zip").to_string()
         }
     };
     if !staging.join(&entry).is_file() {
-        return Err("exécutable absent de l'archive".into());
+        return Err("executable missing from the archive".into());
     }
     std::fs::write(staging.join("ENTRY"), &entry).map_err(|e| e.to_string())?;
     std::fs::write(staging.join("VERSION"), tag).map_err(|e| e.to_string())?;
@@ -458,7 +458,7 @@ mod tests {
         let out = exec::run(cmd, Duration::from_secs(60)).unwrap();
         let version = String::from_utf8_lossy(&out.stdout).trim().to_string();
         println!("{} → {version}", exe.display());
-        assert!(said.last().unwrap().ends_with("installé"));
+        assert!(said.last().unwrap().ends_with("installed"));
         // Checked today: a second run stays silent.
         let again = std::sync::Mutex::new(Vec::new());
         maintain_ytdlp(|s| again.lock().unwrap().push(s));

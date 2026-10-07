@@ -233,10 +233,10 @@ pub fn cycle_cookie_browser() -> Option<String> {
 fn explain(stderr: &str) -> String {
     let lines: Vec<&str> = stderr.lines().filter(|l| !l.trim().is_empty()).collect();
     let Some(last) = lines.last() else {
-        return "yt-dlp a échoué".into();
+        return "yt-dlp failed".into();
     };
     if stderr.contains("CERTIFICATE_VERIFY_FAILED") {
-        return "aucun certificat CA disponible pour yt-dlp — réinstallez-le \
+        return "no CA certificates available to yt-dlp — reinstall it \
                 (brew install yt-dlp, pipx install yt-dlp)"
             .into();
     }
@@ -270,8 +270,8 @@ fn run(args: &[&str], use_cookies: bool) -> Result<(String, String), String> {
     cmd.args(args);
     let out = exec::run(cmd, TIMEOUT).map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            "yt-dlp introuvable — son installation se fait au premier lancement, \
-             vérifiez la connexion (ou installez-le : pipx install yt-dlp)"
+            "yt-dlp not found — it is installed on first launch, check the \
+             connection (or install it: pipx install yt-dlp)"
                 .into()
         } else {
             e.to_string()
@@ -299,7 +299,7 @@ fn parse_entry(line: &str) -> Option<Video> {
     }
     let duration = f.next().and_then(|d| d.parse::<f64>().ok()).map(|d| d as u32);
     let uploader = f.next().filter(|u| *u != "NA").unwrap_or("").to_string();
-    let title = f.next().filter(|t| !t.is_empty() && *t != "NA").unwrap_or("(sans titre)");
+    let title = f.next().filter(|t| !t.is_empty() && *t != "NA").unwrap_or("(untitled)");
     Some(Video { id: id.into(), title: title.into(), uploader, duration })
 }
 
@@ -321,7 +321,7 @@ pub fn search(query: &str) -> Result<Vec<Video>, String> {
     flat(&format!("ytsearch60:{query}"), &[])
 }
 
-/// The logged-in home page ("Recommandé pour vous"). Only meaningful with a
+/// The logged-in home page ("Recommended for you"). Only meaningful with a
 /// session — needs cookie_browser() to be set, same as any other
 /// account-gated request in this module.
 pub fn home_feed() -> Result<Vec<Video>, String> {
@@ -365,13 +365,13 @@ struct Strategy {
 // track that ffmpeg throws away. So: audio-only first, muxed as a safety net.
 const STRATEGIES: [Strategy; 2] = [
     Strategy {
-        label: "audio seul",
+        label: "audio only",
         extractor_args: &[],
         fmt: "bestaudio[abr<=160]/bestaudio",
         auth: false,
     },
     Strategy {
-        label: "flux muxé",
+        label: "muxed stream",
         extractor_args: &["--extractor-args", "youtube:player_client=android"],
         fmt: "bestaudio/18/best[acodec!=none]",
         auth: false,
@@ -397,7 +397,7 @@ const VIDEO_STRATEGY: Strategy = Strategy {
 // stay cookie-free and keep working for public videos exactly as before),
 // only for whatever they couldn't resolve — i.e. actually gated content.
 const AUTH_STRATEGY: Strategy = Strategy {
-    label: "connecté",
+    label: "logged in",
     extractor_args: &["--extractor-args", "youtube:player_client=web"],
     fmt: "bestaudio[abr<=160]/bestaudio/best",
     auth: true,
@@ -465,7 +465,7 @@ fn resolve_with(video: &Video, strategy: &Strategy) -> Result<(Stream, Meta), St
     args.extend_from_slice(&["-f", strategy.fmt, "--print", STREAM_PRINT, &url]);
     let (out, err) = run(&args, strategy.auth)?;
     let Some(line) = out.lines().find(|l| l.starts_with("http")) else {
-        return Err(if err.trim().is_empty() { "flux audio introuvable".into() } else { explain(&err) });
+        return Err(if err.trim().is_empty() { "no audio stream found".into() } else { explain(&err) });
     };
     let mut f = line.splitn(6, '\t');
     let stream_url = f.next().unwrap_or("").to_string();
@@ -511,7 +511,7 @@ pub fn resolve(video: &Video, want_video: bool) -> Result<(Stream, Meta), String
         // cookies (and the Android-gets-skipped fallout) to every lookup.
         order.push((None, &AUTH_STRATEGY));
     }
-    let mut last = String::from("flux audio introuvable");
+    let mut last = String::from("no audio stream found");
     for (index, strategy) in order {
         let (stream, meta) = match resolve_with(video, strategy) {
             Ok(found) => found,
@@ -521,7 +521,7 @@ pub fn resolve(video: &Video, want_video: bool) -> Result<(Stream, Meta), String
             }
         };
         if !stream_playable(&stream.url, &stream.headers) {
-            last = format!("403 sur « {} » — YouTube exige un PO token pour ce client", strategy.label);
+            last = format!("403 on \"{}\" — YouTube requires a PO token for this client", strategy.label);
             continue;
         }
         if let Some(i) = index {

@@ -71,7 +71,7 @@ ffmpeg will fetch it (`stream_playable`) before handing it over; the last workin
 Pause is `SIGSTOP`; seek/volume restart ffmpeg at the current position; each start bumps an `epoch` so
 stale threads exit silently. Video is decoded only when asked for (`v`/`V`), only from a progressive stream.
 
-**Queue/playlist model:** the "SUITE" panel is dual-purpose — auto mode (default, refilled from
+**Queue/playlist model:** the "UP NEXT" panel is dual-purpose — auto mode (default, refilled from
 `sources::related()` per track) vs. playlist mode (`queue` non-empty, loaded from a pasted playlist URL/ID).
 `play_video(.., keep_queue = true)` skips `load_suggestions` so the panel isn't overwritten mid-playlist;
 `n` and track-end advance `queue_index`. Playing anything from the results clears the queue and reverts to
@@ -79,9 +79,8 @@ auto mode. Any new playback path must decide explicitly whether it keeps or clea
 
 ## Conventions
 
-- User-facing strings are French, terse (`"lecture"`, `"fin de la playlist"`). Code/identifiers/most
-  comments and all docs (README, AGENTS.md, CLAUDE.md, release notes) are English; existing French
-  comments stay French — match the local file.
+- Everything is English: user-facing strings (terse: `"playing"`, `"end of playlist"`), code,
+  comments and all docs (README, AGENTS.md, CLAUDE.md, release notes).
 - Comments explain *why*, not *what* — this codebase carries a lot of rationale about YouTube behaviour,
   403s, PO tokens, ffmpeg quirks. Preserve and update them, don't strip them.
 - Clippy-clean, no `unwrap` on user- or network-controlled data, plain structs for records.

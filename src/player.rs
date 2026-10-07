@@ -236,15 +236,15 @@ impl Player {
         refresh_first: bool,
     ) -> Result<(), String> {
         if !tools::ffmpeg_available() {
-            return Err("ffmpeg introuvable dans le PATH".into());
+            return Err("ffmpeg not found in PATH".into());
         }
         if !sink_available() {
             let hint = if cfg!(target_os = "macos") {
-                "réinstallez ffmpeg (brew install ffmpeg)"
+                "reinstall ffmpeg (brew install ffmpeg)"
             } else {
-                "installez un ffmpeg avec le support PulseAudio"
+                "install an ffmpeg built with PulseAudio support"
             };
-            return Err(format!("ffmpeg sans sortie « {BACKEND} » — {hint}"));
+            return Err(format!("ffmpeg has no \"{BACKEND}\" output — {hint}"));
         }
         self.stop();
         let epoch = {
@@ -264,7 +264,7 @@ impl Player {
     }
 
     fn launch(&self, provider: Provider, epoch: u64, start: f64, refresh_first: bool) {
-        let mut last = String::from("flux indisponible");
+        let mut last = String::from("stream unavailable");
         for attempt in 0..ATTEMPTS {
             if !self.current(epoch) {
                 return;
@@ -289,7 +289,7 @@ impl Player {
         }
         if self.current(epoch) {
             self.s.loaded.store(false, Ordering::Relaxed);
-            (self.s.notify)(PlayerEvent::Error(format!("lecture impossible — {last}")));
+            (self.s.notify)(PlayerEvent::Error(format!("cannot play — {last}")));
         }
     }
 
@@ -339,7 +339,7 @@ impl Player {
         if video {
             let mut fds = [0i32; 2];
             if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-                return Err("pipe vidéo impossible".into());
+                return Err("cannot open the video pipe".into());
             }
             for fd in fds {
                 unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
@@ -380,7 +380,7 @@ impl Player {
         if !self.current(epoch) {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("annulé".into());
+            return Err("cancelled".into());
         }
 
         let started = Arc::new(AtomicBool::new(false));
@@ -438,7 +438,7 @@ impl Player {
         let _ = child.wait();
         let _ = stderr_done.recv_timeout(Duration::from_secs(1));
         let err = std::mem::take(&mut *stderr_last.lock().unwrap());
-        Err(if err.is_empty() { "aucun flux audio reçu".into() } else { err })
+        Err(if err.is_empty() { "no audio received".into() } else { err })
     }
 
     pub fn stop(&self) {

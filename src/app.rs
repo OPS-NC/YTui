@@ -34,11 +34,11 @@ const DECK_H: u16 = 20; // border + padding + title/sub + 11-row meter + seek ba
 const METER_H: u16 = 11;
 
 const PLACEHOLDER: &str =
-    "Rechercher, ou coller une URL / un ID de vidéo ou de playlist…  (↑ historique)";
-const TITLE_RESULTS: &str = "R É S U L T A T S";
-const TITLE_HOME: &str = "S U G G E S T I O N S";
-const TITLE_AUTO: &str = "S U I T E   ·   auto";
-const NO_TRACK: &str = "— aucune piste —";
+    "Search, or paste a video / playlist URL or ID…  (↑ history)";
+const TITLE_RESULTS: &str = "R E S U L T S";
+const TITLE_HOME: &str = "R E C O M M E N D E D";
+const TITLE_AUTO: &str = "U P   N E X T   ·   auto";
+const NO_TRACK: &str = "— no track —";
 
 pub enum Msg {
     Term(Event),
@@ -93,19 +93,19 @@ enum Action {
 /// The footer, in display order — also clickable, like Textual's.
 const BINDINGS: [(&str, &str, Action); 14] = [
     ("space", "Pause", Action::TogglePause),
-    ("n", "Suivant", Action::Next),
+    ("n", "Next", Action::Next),
     ("←", "-10s", Action::SeekBack),
     ("→", "+10s", Action::SeekFwd),
     ("+", "Vol +", Action::VolUp),
     ("-", "Vol -", Action::VolDown),
-    ("v", "Vidéo", Action::Clip),
-    ("V", "Plein écran", Action::Fullscreen),
-    ("t", "Miniatures", Action::Thumbs),
-    ("L", "Connexion", Action::Login),
-    ("esc", "Réduire", Action::ClipSmall),
-    ("/", "Recherche", Action::FocusSearch),
+    ("v", "Video", Action::Clip),
+    ("V", "Fullscreen", Action::Fullscreen),
+    ("t", "Thumbnails", Action::Thumbs),
+    ("L", "Login", Action::Login),
+    ("esc", "Back", Action::ClipSmall),
+    ("/", "Search", Action::FocusSearch),
     ("s", "Stop", Action::Stop),
-    ("q", "Quitter", Action::Quit),
+    ("q", "Quit", Action::Quit),
 ];
 
 struct Toast {
@@ -162,13 +162,13 @@ pub struct App {
     // a retry or a clip toggle re-signs only when it has to.
     stream_cache: Arc<Mutex<Option<(Stream, Meta)>>>,
     source: String,
-    // File d'attente chargée depuis une playlist : tant qu'elle est là, la
-    // colonne « suite » ne se recharge plus toute seule.
+    // Queue loaded from a playlist: while it is there, the "up next" panel
+    // no longer refills itself.
     queue: Vec<Video>,
     queue_index: isize,
-    deck_video: bool, // image à la place du spectre dans la platine
+    deck_video: bool, // picture in place of the spectrum in the deck
     fullscreen: bool,
-    thumbs_mode: bool, // grille de miniatures à la place de la liste « suite »
+    thumbs_mode: bool, // thumbnail grid in place of the "up next" list
     thumbs_requested: Vec<String>,
 
     analyser: Analyser,
@@ -204,9 +204,9 @@ impl App {
             hover: None,
             last_click: None,
             last_grid_click: None,
-            status: "TUNER · AUDIO SEUL".into(),
+            status: "TUNER · AUDIO ONLY".into(),
             now_title: NO_TRACK.into(),
-            now_sub: "prêt".into(),
+            now_sub: "ready".into(),
             mem: String::new(),
             toasts: Vec::new(),
             current: None,
@@ -244,8 +244,8 @@ impl App {
             // URLs it hands over are throttled below playback speed, and the
             // sound stalls and restarts every few seconds.
             app.notify(
-                "Aucun moteur JavaScript (deno, node, bun, quickjs) : YouTube bridera \
-                 les flux et la lecture saccadera — installez-en un.",
+                "No JavaScript engine (deno, node, bun, quickjs): YouTube will throttle \
+                 streams and playback will stutter — install one.",
                 10,
             );
         }
@@ -254,7 +254,7 @@ impl App {
             // doesn't retrigger this, so it never clobbers whatever the user
             // is doing by then.
             app.results.title = TITLE_HOME.into();
-            app.set_status("chargement des suggestions…");
+            app.set_status("loading recommendations…");
             app.run_listing(None);
         }
         app
@@ -336,7 +336,7 @@ impl App {
     fn tick_mem(&mut self) {
         let backend = if self.player.loaded() { player::BACKEND } else { "idle" };
         let login = sources::cookie_browser()
-            .map(|b| format!("   ·   connecté ({b})"))
+            .map(|b| format!("   ·   logged in ({b})"))
             .unwrap_or_default();
         let text =
             format!("audio: {backend}   ·   RAM {}{login}", meminfo::human(meminfo::total_rss()));
@@ -369,9 +369,9 @@ impl App {
                         self.fill_results(videos);
                         if home {
                             self.set_status(&if n > 0 {
-                                format!("{n} suggestions")
+                                format!("{n} recommendations")
                             } else {
-                                "aucune suggestion".into()
+                                "no recommendations".into()
                             });
                         }
                     }
@@ -384,7 +384,7 @@ impl App {
                 }
                 match result {
                     Err(e) => self.notify_error(&e),
-                    Ok(videos) if videos.is_empty() => self.set_status("playlist vide"),
+                    Ok(videos) if videos.is_empty() => self.set_status("empty playlist"),
                     Ok(videos) => {
                         let start = start_id
                             .and_then(|id| videos.iter().position(|v| v.id == id))
@@ -417,7 +417,7 @@ impl App {
             Msg::Player(PlayerEvent::Finished) => self.action_next_track(),
             Msg::Player(PlayerEvent::Error(e)) => self.notify_error(&e),
             Msg::Player(PlayerEvent::Attempt(n, total)) => {
-                self.set_status(&format!("URL refusée, nouvelle tentative {n}/{total}"))
+                self.set_status(&format!("URL refused, retry {n}/{total}"))
             }
             Msg::Notice(text) => {
                 self.set_status(&text);
@@ -427,8 +427,8 @@ impl App {
             }
             Msg::Player(PlayerEvent::Resumed(at, reason)) => {
                 let why = if reason.is_empty() { String::new() } else { format!(" ({reason})") };
-                self.set_status(&format!("flux coupé à {}, reprise…", sources::fmt_time(at)));
-                self.notify(&format!("Flux interrompu à {}{why} — reprise", sources::fmt_time(at)), 4);
+                self.set_status(&format!("stream cut at {}, resuming…", sources::fmt_time(at)));
+                self.notify(&format!("Stream interrupted at {}{why} — resuming", sources::fmt_time(at)), 4);
             }
         }
     }
@@ -443,24 +443,24 @@ impl App {
         self.history.add(&query);
         if let Some(playlist_id) = sources::parse_playlist_id(&query) {
             self.set_results_visible(false);
-            self.set_status("Playlist reconnue, chargement…");
+            self.set_status("Playlist recognised, loading…");
             self.load_playlist(playlist_id, sources::parse_video_id(&query));
             return;
         }
         if let Some(video_id) = sources::parse_video_id(&query) {
             self.set_results_visible(false);
-            self.set_status("Lien reconnu, ouverture…");
+            self.set_status("Link recognised, opening…");
             let title = format!("youtube.com/watch?v={video_id}");
             self.play_video(Video::new(&video_id, title), false);
             return;
         }
         self.set_results_visible(true);
         self.results.title = TITLE_RESULTS.into();
-        self.set_status(&format!("Recherche « {query} »…"));
+        self.set_status(&format!("Searching \"{query}\"…"));
         self.run_listing(Some(query));
     }
 
-    /// Affiche la colonne de résultats uniquement pendant une recherche.
+    /// The results column is only shown during a search.
     fn set_results_visible(&mut self, visible: bool) {
         self.results_visible = visible;
         if !visible && self.focus == Focus::Results {
@@ -476,8 +476,8 @@ impl App {
         // seconds); stale rows from the previous search go right away.
         self.results.set_items(Vec::new());
         self.results.loading = Some(match &query {
-            Some(q) => format!("recherche « {q} »…"),
-            None => "chargement des suggestions…".into(),
+            Some(q) => format!("searching \"{q}\"…"),
+            None => "loading recommendations…".into(),
         });
         self.loading_since = Instant::now();
         let (token, tx) = (self.tokens.listing, self.tx.clone());
@@ -494,7 +494,7 @@ impl App {
     fn fill_results(&mut self, videos: Vec<Video>) {
         let n = videos.len();
         self.results.set_items(videos);
-        self.set_status(&format!("{n} résultats"));
+        self.set_status(&format!("{n} results"));
         if n > 0 && self.results_visible {
             self.focus = Focus::Results;
             self.results.select(0);
@@ -509,8 +509,8 @@ impl App {
 
     /// Enter or double click on a row.
     fn activate(&mut self, list: ListId, index: usize) {
-        // Une piste choisie dans la file garde la playlist ; un résultat de
-        // recherche la remplace par les suggestions automatiques.
+        // A track picked from the queue keeps the playlist; a search result
+        // replaces it with automatic suggestions.
         if list == ListId::Suggestions && !self.queue.is_empty() {
             let id = &self.suggestions.items[index].id;
             if let Some(i) = self.queue.iter().position(|v| &v.id == id) {
@@ -537,20 +537,20 @@ impl App {
         self.stream_cache = Arc::default();
         self.source.clear();
         self.now_title = video.title.clone();
-        self.now_sub = format!("{}  ·  ouverture du flux…", or_dash(&video.uploader));
+        self.now_sub = format!("{}  ·  opening stream…", or_dash(&video.uploader));
         self.current = Some(video);
         // Resolving takes seconds: say so, rather than leaving a stale
-        // "double-clic pour lire" up that reads as if the click was lost.
-        self.set_status("ouverture du flux…");
-        // Une piste enchaînée garde l'image si elle est déjà affichée.
+        // "double-click to play" up that reads as if the click was lost.
+        self.set_status("opening stream…");
+        // A chained track keeps the picture if it is already shown.
         self.start_stream(0.0, self.deck_video || self.fullscreen);
         if !keep_queue {
             self.load_suggestions();
         }
     }
 
-    /// Audio seul par défaut : la piste vidéo n'est décodée que si « v » l'a
-    /// demandée, ce qui rouvre le flux à la position courante.
+    /// Audio only by default: the video track is decoded only when `v` asked
+    /// for it, which reopens the stream at the current position.
     fn start_stream(&mut self, start: f64, want_video: bool) {
         let Some(video) = self.current.clone() else { return };
         let cache = self.stream_cache.clone();
@@ -617,14 +617,14 @@ impl App {
             "{}  ·  {}  ·  {}  ·  {}",
             or_dash(&video.uploader),
             video.duration_str(),
-            if self.source.is_empty() { "audio seul" } else { &self.source },
+            if self.source.is_empty() { "audio only" } else { &self.source },
             player::BACKEND
         );
         if info.want_video && !info.has_video {
-            self.notify("Aucune piste vidéo sur ce flux — spectre affiché.", 5);
+            self.notify("No video track in this stream — showing the spectrum.", 5);
             self.no_picture();
         }
-        self.set_status("lecture");
+        self.set_status("playing");
     }
 
     fn load_suggestions(&mut self) {
@@ -644,12 +644,12 @@ impl App {
             return;
         }
         match result {
-            Err(_) => self.set_status("suggestions indisponibles"),
+            Err(_) => self.set_status("up next unavailable"),
             Ok(videos) => {
                 let empty = videos.is_empty();
                 self.fill_suggestions(videos);
                 if empty {
-                    self.set_status("aucune suggestion pour cette piste");
+                    self.set_status("nothing up next for this track");
                 }
             }
         }
@@ -662,7 +662,7 @@ impl App {
         }
         match self.suggestions.items.first().cloned() {
             Some(video) => self.play_video(video, false),
-            None => self.set_status("Aucune suggestion à enchaîner."),
+            None => self.set_status("Nothing up next."),
         }
     }
 
@@ -681,14 +681,14 @@ impl App {
         let n = videos.len();
         self.queue = videos.clone();
         self.fill_suggestions(videos);
-        self.suggestions.title = format!("S U I T E   ·   playlist ({n})");
-        self.set_status(&format!("playlist : {n} pistes"));
+        self.suggestions.title = format!("U P   N E X T   ·   playlist ({n})");
+        self.set_status(&format!("playlist: {n} tracks"));
         self.play_queue_index(start as isize);
     }
 
     fn play_queue_index(&mut self, index: isize) {
         if index < 0 || index as usize >= self.queue.len() {
-            self.set_status("fin de la playlist");
+            self.set_status("end of playlist");
             return;
         }
         self.queue_index = index;
@@ -714,12 +714,12 @@ impl App {
 
     // ----------------------------------------------------------- miniatures
 
-    /// « t » : grille de miniatures de la playlist à la place de la liste
-    /// texte. N'existe qu'en mode playlist — en mode auto il n'y a pas de
-    /// "prochaines pistes" stables à précharger.
+    /// `t`: the playlist as a thumbnail grid instead of the text list. Only
+    /// in playlist mode — auto mode has no stable "upcoming tracks" to
+    /// preload.
     fn action_toggle_thumbs(&mut self) {
         if self.queue.is_empty() {
-            self.notify("Miniatures disponibles en mode playlist.", 3);
+            self.notify("Thumbnails are available in playlist mode.", 3);
             return;
         }
         self.thumbs_mode = !self.thumbs_mode;
@@ -784,22 +784,22 @@ impl App {
         self.dirty = true; // the next draw acks, so frames start flowing
     }
 
-    /// Rouvre le flux courant avec sa piste vidéo si besoin. False = rien à
-    /// afficher (aucune piste en cours).
+    /// Reopens the current stream with its video track if needed. False =
+    /// nothing to show (no current track).
     fn ensure_video_stream(&mut self) -> bool {
         if self.current.is_none() {
-            self.notify("Aucune piste en cours.", 3);
+            self.notify("Nothing playing.", 3);
             return false;
         }
         if !self.player.video() {
-            self.set_status("ouverture de la vidéo…");
+            self.set_status("opening video…");
             self.start_stream(self.player.position(), true);
         }
         true
     }
 
-    /// « v » : l'image prend la place du spectre dans la platine, et un
-    /// second appui rend la platine à l'analyseur.
+    /// `v`: the picture takes the spectrum's place in the deck; a second
+    /// press gives the deck back to the analyser.
     fn action_toggle_clip(&mut self) {
         if self.deck_video {
             self.deck_video = false;
@@ -813,7 +813,7 @@ impl App {
         self.apply_deck();
     }
 
-    /// « V » (maj + v), ou un clic sur l'image : plein écran.
+    /// `V` (shift + v), or a click on the picture: full screen.
     fn action_toggle_fullscreen(&mut self) {
         if self.fullscreen {
             self.leave_fullscreen();
@@ -823,11 +823,11 @@ impl App {
             return;
         }
         self.fullscreen = true;
-        self.notify("Plein écran — « Échap » pour revenir", 3);
+        self.notify("Fullscreen — Esc to go back", 3);
     }
 
-    /// Flux sans piste vidéo : retour à l'analyseur, dans la platine comme
-    /// en plein écran.
+    /// Stream without a video track: back to the analyser, in the deck as
+    /// in full screen.
     fn no_picture(&mut self) {
         self.deck_video = false;
         self.apply_deck();
@@ -839,7 +839,7 @@ impl App {
             return;
         }
         self.fullscreen = false;
-        self.notify("Retour à la platine", 2);
+        self.notify("Back to the deck", 2);
     }
 
     // ------------------------------------------------------------- actions
@@ -860,14 +860,14 @@ impl App {
             Action::Fullscreen => self.action_toggle_fullscreen(),
             Action::Thumbs => self.action_toggle_thumbs(),
             Action::Login => self.action_cycle_login(),
-            // « Échap » only ever shrinks: it never opens the full screen.
+            // `Esc` only ever shrinks: it never opens the full screen.
             Action::ClipSmall => self.leave_fullscreen(),
             Action::FocusSearch => self.focus = Focus::Search,
             Action::Stop => {
                 self.player.stop();
                 self.now_title = NO_TRACK.into();
-                self.now_sub = "prêt".into();
-                self.set_status("arrêt");
+                self.now_sub = "ready".into();
+                self.set_status("stopped");
             }
             Action::Quit => self.quit = true,
         }
@@ -887,20 +887,19 @@ impl App {
         self.set_status(&format!("Volume {pct}%"));
     }
 
-    /// « L » : cycle explicitement entre "pas connecté" et les navigateurs
-    /// pris en charge par yt-dlp pour l'authentification par cookies (vidéos
-    /// limitées par âge, réservées aux membres, etc.). Pas d'automatisme au
-    /// démarrage — c'est une action délibérée, visible dans la barre du bas
-    /// tant qu'elle est active.
+    /// `L`: explicitly cycles between "not logged in" and the browsers yt-dlp
+    /// supports for cookie authentication (age-restricted, members-only
+    /// videos, etc.). Nothing automatic at launch — a deliberate action,
+    /// visible in the status bar for as long as it is on.
     fn action_cycle_login(&mut self) {
         match sources::cycle_cookie_browser() {
             Some(b) => {
-                self.set_status(&format!("connexion : {b}"));
-                self.notify(&format!("Authentification via les cookies de {b}"), 3);
+                self.set_status(&format!("login: {b}"));
+                self.notify(&format!("Authenticating with {b}'s cookies"), 3);
             }
             None => {
-                self.set_status("déconnecté");
-                self.notify("Authentification désactivée", 3);
+                self.set_status("logged out");
+                self.notify("Authentication off", 3);
             }
         }
         self.tick_mem();
@@ -1154,7 +1153,7 @@ impl App {
                 self.activate(id, i);
             } else {
                 self.last_click = Some((id, i, now));
-                self.set_status("double-clic pour lire");
+                self.set_status("double-click to play");
             }
             return;
         }
@@ -1201,7 +1200,7 @@ impl App {
     }
 
     fn notify_error(&mut self, e: &str) {
-        let text = if e.is_empty() { "erreur" } else { e };
+        let text = if e.is_empty() { "error" } else { e };
         self.notify(text, 6);
     }
 }
@@ -1310,7 +1309,7 @@ impl App {
     }
 
     fn draw_deck(&mut self, buf: &mut Buffer, deck: Rect) {
-        w::tall_box(buf, deck, t::BORDER, t::PANEL_BG, t::SCREEN_BG, Some(("P L A T I N E", t::BORDER_TITLE)));
+        w::tall_box(buf, deck, t::BORDER, t::PANEL_BG, t::SCREEN_BG, Some(("D E C K", t::BORDER_TITLE)));
         let inner = w::inner(deck);
         // `padding: 1 2`
         let c = Rect::new(inner.x + 2, inner.y + 1, inner.width.saturating_sub(4), inner.height.saturating_sub(2));
@@ -1321,8 +1320,8 @@ impl App {
         if c.height > 1 {
             spans(buf, c.x, c.y + 1, c.width, &[(&self.now_sub, fg(t::NOW_SUB))]);
         }
-        // Analyseur par défaut ; « v » met l'image à sa place, « V »
-        // l'envoie en plein écran.
+        // Analyser by default; `v` puts the picture in its place, `V` sends it
+        // full screen.
         let meter = Rect::new(c.x, c.y + 3, c.width, METER_H.min(c.height.saturating_sub(3)));
         if self.deck_video {
             self.hits.deck_clip = meter;
@@ -1345,7 +1344,7 @@ impl App {
     }
 
     /// Full-screen clip: the picture over the whole terminal, caption and
-    /// transport under it on the same black ground; « Échap » comes back.
+    /// transport under it on the same black ground; `Esc` comes back.
     fn draw_fullscreen(&mut self, buf: &mut Buffer, area: Rect) {
         w::fill(buf, area, t::CLIP_BG);
         let clip = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(2));
@@ -1433,8 +1432,8 @@ mod tests {
         (0..n)
             .map(|i| Video {
                 id: format!("vid{i:08}"),
-                title: format!("Morceau numéro {i} — un titre assez long pour être coupé"),
-                uploader: "Chaîne".into(),
+                title: format!("Track number {i} — a title long enough to get cut off"),
+                uploader: "Channel".into(),
                 duration: Some(60 + i as u32 * 7),
             })
             .collect()
@@ -1459,7 +1458,7 @@ mod tests {
         app.suggestions.set_items(fake(12));
         app.current = Some(app.suggestions.items[1].clone());
         app.hover = Some((ListId::Suggestions, 3));
-        app.notify("Plein écran — « Échap » pour revenir", 3);
+        app.notify("Fullscreen — Esc to go back", 3);
         println!("{}", dump(&mut app, 140, 42));
 
         app.results_visible = false;
@@ -1470,18 +1469,18 @@ mod tests {
         app.grid.frames.insert("vid00000007".into(), vec![200; w::CELL_W * w::IMAGE_H * 2 * 3]);
         let out = dump(&mut app, 100, 42);
         println!("{out}");
-        assert!(out.contains("miniatures"));
+        assert!(out.contains("thumbnails"));
         assert!(app.grid.scroll_y > 0, "grid follows the playing track");
 
         // A search in flight: the results panel shows the spinner, not rows.
         app.thumbs_mode = false;
         app.results_visible = true;
         app.results.set_items(Vec::new());
-        app.results.loading = Some("recherche « lofi »…".into());
+        app.results.loading = Some("searching \"lofi\"…".into());
         app.results.spinner = 3;
         let out = dump(&mut app, 120, 40);
-        let line = out.lines().find(|l| l.contains("recherche « lofi »…")).expect("spinner label drawn");
+        let line = out.lines().find(|l| l.contains("searching \"lofi\"…")).expect("spinner label drawn");
         println!("{line}");
-        assert!(line.contains("⠸ recherche"));
+        assert!(line.contains("⠸ searching"));
     }
 }

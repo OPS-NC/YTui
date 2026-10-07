@@ -83,7 +83,7 @@ fn rss(_pid: i32) -> u64 {
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn children(_pid: i32, _out: &mut Vec<i32>) {}
 
-/// `12 345.6 Mo` — thousands separated by a space, French style.
+/// `12,345.6 MB`.
 pub fn human(nbytes: u64) -> String {
     let tenths = (nbytes as f64 / (1024.0 * 1024.0) * 10.0).round() as u64;
     let (int, frac) = (tenths / 10, tenths % 10);
@@ -91,9 +91,9 @@ pub fn human(nbytes: u64) -> String {
     let mut grouped = String::with_capacity(digits.len() + 4);
     for (i, c) in digits.chars().enumerate() {
         if i > 0 && (digits.len() - i) % 3 == 0 {
-            grouped.push(' ');
+            grouped.push(',');
         }
         grouped.push(c);
     }
-    format!("{grouped}.{frac} Mo")
+    format!("{grouped}.{frac} MB")
 }
