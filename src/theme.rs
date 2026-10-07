@@ -51,6 +51,10 @@ pub const ROW_TITLE_HL: Color = rgb(0xfff6e6);
 pub const ROW_UPLOADER: Color = rgb(0x6b6055);
 pub const ROW_UPLOADER_HL: Color = rgb(0xe0b98a);
 
+// Waiting for yt-dlp: the spinner glyph burns amber, its label stays dim.
+pub const SPINNER: Color = rgb(0xf2b23c);
+pub const SPINNER_LABEL: Color = rgb(0x6b6055);
+
 // --------------------------------------------------------------------- deck
 pub const NOW_TITLE: Color = rgb(0xfff6e6);
 pub const NOW_SUB: Color = rgb(0x6b6055);

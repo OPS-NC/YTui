@@ -28,6 +28,7 @@ use crate::widgets::{self as w, HalfBlock, TextInput, ThumbGrid, VList, bold, fg
 
 pub const FPS_PERIOD: Duration = Duration::from_millis(50); // 20 fps for the analyser
 const MEM_PERIOD: Duration = Duration::from_secs(1);
+const SPINNER_PERIOD_MS: u128 = 100;
 const DOUBLE_CLICK: Duration = Duration::from_millis(500);
 const DECK_H: u16 = 20; // border + padding + title/sub + 11-row meter + seek bar
 const METER_H: u16 = 11;
@@ -175,6 +176,7 @@ pub struct App {
     clip_full: HalfBlock,
     shown_seek: (u64, u64, bool),
     next_anim: Instant,
+    loading_since: Instant,
     next_mem: Instant,
     tokens: Tokens,
     hits: Hits,
@@ -222,6 +224,7 @@ impl App {
             clip_full: HalfBlock::default(),
             shown_seek: (0, 0, false),
             next_anim: now,
+            loading_since: now,
             next_mem: now,
             tokens: Tokens::default(),
             hits: Hits::default(),
@@ -282,7 +285,9 @@ impl App {
     }
 
     fn animating(&self) -> bool {
-        self.player.playing() || (!self.fullscreen && !self.deck_video && self.analyser.active())
+        self.player.playing()
+            || self.results.loading.is_some()
+            || (!self.fullscreen && !self.deck_video && self.analyser.active())
     }
 
     pub fn tick(&mut self) {
@@ -303,6 +308,13 @@ impl App {
     }
 
     fn animate(&mut self) {
+        if self.results.loading.is_some() {
+            let frame = (self.loading_since.elapsed().as_millis() / SPINNER_PERIOD_MS) as usize;
+            if frame != self.results.spinner {
+                self.results.spinner = frame;
+                self.dirty = true;
+            }
+        }
         // The clip redraws on PlayerEvent::Frame, not here.
         let clip_shown = self.fullscreen || self.deck_video;
         if !clip_shown && (self.player.loaded() || self.analyser.active()) {
@@ -350,6 +362,7 @@ impl App {
                 if token != self.tokens.listing {
                     return;
                 }
+                self.results.loading = None;
                 match result {
                     Ok(videos) => {
                         let n = videos.len();
@@ -459,6 +472,14 @@ impl App {
     /// search supersedes the launch-time suggestions and vice versa.
     fn run_listing(&mut self, query: Option<String>) {
         self.tokens.listing += 1;
+        // The results panel spins until the answer lands (yt-dlp takes
+        // seconds); stale rows from the previous search go right away.
+        self.results.set_items(Vec::new());
+        self.results.loading = Some(match &query {
+            Some(q) => format!("recherche « {q} »…"),
+            None => "chargement des suggestions…".into(),
+        });
+        self.loading_since = Instant::now();
         let (token, tx) = (self.tokens.listing, self.tx.clone());
         exec::spawn("listing", move || {
             let home = query.is_none();
@@ -1451,5 +1472,16 @@ mod tests {
         println!("{out}");
         assert!(out.contains("miniatures"));
         assert!(app.grid.scroll_y > 0, "grid follows the playing track");
+
+        // A search in flight: the results panel shows the spinner, not rows.
+        app.thumbs_mode = false;
+        app.results_visible = true;
+        app.results.set_items(Vec::new());
+        app.results.loading = Some("recherche « lofi »…".into());
+        app.results.spinner = 3;
+        let out = dump(&mut app, 120, 40);
+        let line = out.lines().find(|l| l.contains("recherche « lofi »…")).expect("spinner label drawn");
+        println!("{line}");
+        assert!(line.contains("⠸ recherche"));
     }
 }

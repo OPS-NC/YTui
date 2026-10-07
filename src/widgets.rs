@@ -305,11 +305,26 @@ pub struct VList {
     pub offset: usize,
     pub title: String,
     pub view: Rect,
+    /// Set while the list is being fetched: drawn as a spinner + this label
+    /// in place of the rows. `spinner` is the frame, advanced by the app.
+    pub loading: Option<String>,
+    pub spinner: usize,
 }
+
+// Braille spinner: one cell wide, reads as motion at 10 frames a second.
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 impl VList {
     pub fn new(title: &str) -> Self {
-        Self { items: Vec::new(), index: None, offset: 0, title: title.into(), view: Rect::default() }
+        Self {
+            items: Vec::new(),
+            index: None,
+            offset: 0,
+            title: title.into(),
+            view: Rect::default(),
+            loading: None,
+            spinner: 0,
+        }
     }
 
     pub fn set_items(&mut self, items: Vec<Video>) {
@@ -378,6 +393,16 @@ impl VList {
         self.view = view;
         let max = self.items.len().saturating_sub(view.height as usize);
         self.offset = self.offset.min(max);
+        if let Some(label) = &self.loading {
+            if view.height > 0 {
+                let glyph = SPINNER[self.spinner % SPINNER.len()];
+                let text_w = 2 + label.width() as u16;
+                let x = view.x + view.width.saturating_sub(text_w) / 2;
+                let y = view.y + view.height.saturating_sub(1) / 2;
+                spans(buf, x, y, view.width, &[(glyph, bold(t::SPINNER)), (" ", fg(t::SPINNER_LABEL)), (label, fg(t::SPINNER_LABEL))]);
+            }
+            return;
+        }
         let width = scrollbar(buf, view, self.items.len(), self.offset);
         for row in 0..view.height as usize {
             let i = self.offset + row;
