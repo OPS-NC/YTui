@@ -170,6 +170,9 @@ keeps or clears the queue.
 
 ## Workflow
 
+- Branches: `feat/<topic>` or `fix/<topic>` off `main`, merged back into
+  `main` when done (then deleted). `main` is the default branch; releases
+  are tags `vX.Y` on `main`, cut only when the maintainer asks.
 - Small, surgical diffs. Don't reformat untouched code.
 - Don't touch `target/`, `.idea/`.
 - Update `README.md` when a key binding or user-visible behaviour changes.
